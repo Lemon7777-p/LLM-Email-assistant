@@ -79,10 +79,20 @@ class OpenAIClient:
                 # SDK not available; fall back to requests if api_base provided, else to stub
                 self._client = None
 
-    def summarize_email(self, email_body: str, email_received_time: Optional[str] = None, current_time: Optional[str] = None, email_sender: Optional[str] = None, temperature: float = 0.0, max_tokens: int = 512) -> Dict[str, Any]:
+    def summarize_email(self, email_body: str, email_received_time: Optional[str] = None, current_time: Optional[str] = None, email_sender: Optional[str] = None, temperature: float = 0.0, max_tokens: int = 512, summary_language: str = "English", timezone_str: str = "Asia/Hong_Kong") -> Dict[str, Any]:
         """Summarize an email and propose calendar events.
 
         If no OpenAI key / client present, returns a deterministic stub useful for local development and tests.
+        
+        Args:
+            email_body: The email body text
+            email_received_time: When the email was received (ISO format)
+            current_time: Current system time (ISO format)
+            email_sender: Sender email address
+            temperature: LLM temperature parameter
+            max_tokens: Maximum tokens for response
+            summary_language: Language for the summary output (e.g., "English", "简体中文", "繁体中文", "日本語")
+            timezone_str: Timezone string (e.g., "Asia/Hong_Kong (UTC+08:00)", "America/New_York (UTC-05:00)", "UTC (UTC+00:00)")
         """
         # If neither requests-based nor SDK client is configured, fall back to stub
         if not self._client and not self._use_requests:
@@ -105,15 +115,67 @@ class OpenAIClient:
         if not current_time:
             current_time = datetime.now(timezone.utc).isoformat()
 
-        system_prompt = (
-            "You are a helpful assistant that extracts scheduling information from a user's email. "
-            "Given the full email body and the sender, produce a short, clean, human-readable summary (include the sender's name if available), you should also translate the email content into English if it's not in English. "
-            "It is recommened to use as less words as possible to describe the email content. Never use more than 1 line to describe the email content. "
-            "You should consider the sender's context when summarizing the email and propose events accordingly. If it is a subscription or promotional email, you should report the true key information only. "
-            "an array of proposed events. Respond with JSON only (no extra explanation).\n\n"
-            "IMPORTANT: All proposed event datetimes must be expressed in Hong Kong local time (Asia/Hong_Kong, UTC+08:00). "
-            "Use full ISO 8601 timestamps with timezone offset +08:00, e.g. 2025-11-24T10:00:00+08:00."
-        )
+        # Extract timezone name if format includes UTC offset (e.g., "Asia/Hong_Kong (UTC+08:00)" -> "Asia/Hong_Kong")
+        timezone_name = timezone_str
+        if " (" in timezone_str:
+            timezone_name = timezone_str.split(" (")[0]
+
+        # Get timezone offset info
+        try:
+            import pytz
+            tz = pytz.timezone(timezone_name)
+            # Get current offset
+            now = datetime.now(tz)
+            offset_seconds = now.utcoffset().total_seconds()
+            offset_hours = int(offset_seconds // 3600)
+            offset_minutes = int((offset_seconds % 3600) // 60)
+            # Format as ISO 8601 offset (e.g., +08:00, -05:00)
+            if offset_hours == 0 and offset_minutes == 0:
+                offset_iso = "+00:00"
+                offset_str = "UTC"
+            else:
+                offset_iso = f"{offset_hours:+03d}:{offset_minutes:02d}"
+                if offset_minutes == 0:
+                    offset_str = f"UTC{offset_hours:+d}" if offset_hours != 0 else "UTC"
+                else:
+                    offset_str = f"UTC{offset_hours:+d}:{offset_minutes:02d}"
+        except Exception:
+            # Fallback to UTC+8 if timezone parsing fails
+            offset_iso = "+08:00"
+            offset_str = "UTC+08:00"
+            timezone_name = "Asia/Hong_Kong"
+
+        # Build system prompt based on language and timezone
+        if summary_language in ["简体中文", "繁體中文"]:
+            system_prompt = (
+                "你是一个有用的助手，从用户的邮件中提取日程安排信息。"
+                "根据完整的邮件正文和发件人，生成一个简短、清晰、易读的摘要（如果可用，请包含发件人姓名）。"
+                "建议使用尽可能少的词语来描述邮件内容。永远不要使用超过1行来描述邮件内容。"
+                "在总结邮件和提出事件建议时，你应该考虑发件人的上下文。如果是订阅或促销邮件，你应该只报告真正的关键信息。"
+                "返回一个包含摘要文本和提议事件数组的JSON对象。仅返回JSON（不要额外解释）。\n\n"
+                f"重要提示：所有提议的事件日期时间必须使用{timezone_name}本地时间（{offset_str}）表示。"
+                f"使用完整的ISO 8601时间戳，时区偏移为{offset_iso}，例如：2025-11-24T10:00:00{offset_iso}。"
+            )
+        elif summary_language == "日本語":
+            system_prompt = (
+                "あなたはユーザーのメールからスケジュール情報を抽出する役立つアシスタントです。"
+                "完全なメール本文と送信者を考慮して、短く、明確で、読みやすい要約を生成してください（可能な場合は送信者名を含めてください）。"
+                "メール内容を説明する際は、できるだけ少ない言葉を使用することを推奨します。メール内容の説明に1行を超えることは絶対に避けてください。"
+                "メールを要約し、イベントを提案する際は、送信者のコンテキストを考慮してください。購読またはプロモーションメールの場合は、真の重要な情報のみを報告してください。"
+                "要約テキストと提案されたイベントの配列を含むJSONオブジェクトを返してください。JSONのみを返してください（追加の説明は不要）。\n\n"
+                f"重要：提案されたすべてのイベントの日時は、{timezone_str}現地時間（{offset_str}）で表現する必要があります。"
+                f"完全なISO 8601タイムスタンプを使用し、タイムゾーンオフセットは{offset_iso}です。例：2025-11-24T10:00:00{offset_iso}。"
+            )
+        else:
+            system_prompt = (
+                "You are a helpful assistant that extracts scheduling information from a user's email. "
+                "Given the full email body and the sender, produce a short, clean, human-readable summary (include the sender's name if available). "
+                "It is recommended to use as few words as possible to describe the email content. Never use more than 1 line to describe the email content. "
+                "You should consider the sender's context when summarizing the email and propose events accordingly. If it is a subscription or promotional email, you should report the true key information only. "
+                "Return a JSON object with a summary text and an array of proposed events. Respond with JSON only (no extra explanation).\n\n"
+                f"IMPORTANT: All proposed event datetimes must be expressed in {timezone_name} local time ({offset_str}). "
+                f"Use full ISO 8601 timestamps with timezone offset {offset_iso}, e.g. 2025-11-24T10:00:00{offset_iso}."
+            )
 
         # include received/current time context to help the model propose sensible event datetimes
         time_context = ""
@@ -126,16 +188,40 @@ class OpenAIClient:
         if email_sender:
             sender_context = f"Email sender: {email_sender}. "
 
-        user_prompt = (
-            "Email:\n" + email_body + "\n\n"
-            + sender_context
-            + time_context
-            + "\nProduce a JSON object with keys:\n"
-            "- text: brief summary string\n"
-            "- proposals: an array (possibly empty) of objects with fields: title, start (ISO 8601), end (ISO 8601), attendees (array of emails), location, notes.\n"
-            "If there are no scheduling intents, use an empty array for proposals. Return JSON only.\n\n"
-            "IMPORTANT: Regardless of the timezone of any provided timestamps, return all proposal start/end datetimes in Hong Kong local time (Asia/Hong_Kong, UTC+08:00) using ISO 8601 with +08:00 offset."
-        )
+        # Build user prompt based on language
+        if summary_language in ["简体中文", "繁體中文"]:
+            user_prompt = (
+                "邮件:\n" + email_body + "\n\n"
+                + sender_context
+                + time_context
+                + "\n生成一个包含以下键的JSON对象:\n"
+                "- text: 简短的摘要字符串（使用" + summary_language + "）\n"
+                "- proposals: 一个可能为空的对象数组，包含字段：title, start (ISO 8601), end (ISO 8601), attendees (电子邮件数组), location, notes。\n"
+                "如果没有日程安排意图，请使用空数组作为proposals。仅返回JSON。\n\n"
+                f"重要提示：无论提供的任何时间戳的时区如何，所有提议的开始/结束日期时间都必须使用{timezone_name}本地时间（{offset_str}），使用ISO 8601格式，时区偏移为{offset_iso}。"
+            )
+        elif summary_language == "日本語":
+            user_prompt = (
+                "メール:\n" + email_body + "\n\n"
+                + sender_context
+                + time_context
+                + "\n以下のキーを含むJSONオブジェクトを生成してください:\n"
+                "- text: 短い要約文字列（" + summary_language + "を使用）\n"
+                "- proposals: 空の可能性があるオブジェクトの配列。フィールド：title, start (ISO 8601), end (ISO 8601), attendees (メールアドレスの配列), location, notes。\n"
+                "スケジュール意図がない場合は、proposalsに空の配列を使用してください。JSONのみを返してください。\n\n"
+                f"重要：提供されたタイムスタンプのタイムゾーンに関係なく、すべての提案の開始/終了日時は{timezone_name}現地時間（{offset_str}）で返す必要があり、ISO 8601形式を使用し、タイムゾーンオフセットは{offset_iso}です。"
+            )
+        else:
+            user_prompt = (
+                "Email:\n" + email_body + "\n\n"
+                + sender_context
+                + time_context
+                + "\nProduce a JSON object with keys:\n"
+                "- text: brief summary string (in " + summary_language + ")\n"
+                "- proposals: an array (possibly empty) of objects with fields: title, start (ISO 8601), end (ISO 8601), attendees (array of emails), location, notes.\n"
+                "If there are no scheduling intents, use an empty array for proposals. Return JSON only.\n\n"
+                f"IMPORTANT: Regardless of the timezone of any provided timestamps, return all proposal start/end datetimes in {timezone_name} local time ({offset_str}) using ISO 8601 with {offset_iso} offset."
+            )
 
         try:
             if self._use_requests:

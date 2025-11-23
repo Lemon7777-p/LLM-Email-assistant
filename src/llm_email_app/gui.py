@@ -21,6 +21,298 @@ from llm_email_app.llm.openai_client import OpenAIClient
 from llm_email_app.calendar.gcal import GCalClient
 from llm_email_app.config import settings
 
+# 多语言翻译字典
+TRANSLATIONS = {
+    "English": {
+        "title": "LLM Email — Test GUI",
+        "folder": "Folder:",
+        "email_list": "Email List:",
+        "sign_in": "Sign In",
+        "sign_out": "Sign Out",
+        "refresh": "Refresh (7d)",
+        "email_body": "Email body:",
+        "compose": "Compose",
+        "reply": "Reply",
+        "delete": "Delete",
+        "archive": "Archive",
+        "mark_read": "Mark Read",
+        "summarize": "Summarize",
+        "summary": "Summary:",
+        "proposals": "Proposals:",
+        "create_event": "Create event",
+        "manage_calendar": "Manage Calendar",
+        "log": "Log:",
+        "language": "Language:",
+        "timezone": "Timezone:",
+        "ui_language": "UI Language:",
+        "summary_language": "Summary Language:",
+        # Calendar window
+        "calendar_management": "Calendar Management",
+        "today": "Today",
+        "refresh_calendar": "Refresh",
+        "add_event": "+ Add Event",
+        "event_details": "Event Details",
+        "event_title": "Title:",
+        "event_start": "Start:",
+        "event_date": "Date:",
+        "event_location": "Location:",
+        "event_description": "Description:",
+        "edit": "Edit",
+        "close": "Close",
+        "add_calendar_event": "Add Calendar Event",
+        "edit_calendar_event": "Edit Calendar Event",
+        "start_time": "Start Time (YYYY-MM-DDTHH:MM:SS):",
+        "end_time": "End Time (YYYY-MM-DDTHH:MM:SS):",
+        "create": "Create",
+        "save": "Save",
+        "cancel": "Cancel",
+        "input_error": "Input Error",
+        "fill_required_fields": "Please fill in title, start time, and end time",
+        "untitled": "Untitled",
+        "more_events": "+{n} more",
+        "confirm_delete": "Confirm Delete",
+        "confirm_delete_email": "Are you sure you want to delete this email?",
+        "confirm_delete_event": "Are you sure you want to delete this event?",
+        # Month names
+        "month_january": "January",
+        "month_february": "February",
+        "month_march": "March",
+        "month_april": "April",
+        "month_may": "May",
+        "month_june": "June",
+        "month_july": "July",
+        "month_august": "August",
+        "month_september": "September",
+        "month_october": "October",
+        "month_november": "November",
+        "month_december": "December",
+        # Weekday names
+        "weekday_sun": "Sun",
+        "weekday_mon": "Mon",
+        "weekday_tue": "Tue",
+        "weekday_wed": "Wed",
+        "weekday_thu": "Thu",
+        "weekday_fri": "Fri",
+        "weekday_sat": "Sat",
+    },
+    "简体中文": {
+        "title": "LLM 邮件助手 — 测试界面",
+        "folder": "文件夹:",
+        "email_list": "邮件列表:",
+        "sign_in": "登录",
+        "sign_out": "登出",
+        "refresh": "刷新 (7天)",
+        "email_body": "邮件正文:",
+        "compose": "撰写",
+        "reply": "回复",
+        "delete": "删除",
+        "archive": "归档",
+        "mark_read": "标记已读",
+        "summarize": "摘要",
+        "summary": "摘要:",
+        "proposals": "提议:",
+        "create_event": "创建事件",
+        "manage_calendar": "管理日历",
+        "log": "日志:",
+        "language": "语言:",
+        "timezone": "时区:",
+        "ui_language": "界面语言:",
+        "summary_language": "摘要语言:",
+        # Calendar window
+        "calendar_management": "日历管理",
+        "today": "今天",
+        "refresh_calendar": "刷新",
+        "add_event": "+ 添加事件",
+        "event_details": "事件详情",
+        "event_title": "标题:",
+        "event_start": "开始:",
+        "event_date": "日期:",
+        "event_location": "地点:",
+        "event_description": "描述:",
+        "edit": "编辑",
+        "close": "关闭",
+        "add_calendar_event": "添加日历事件",
+        "edit_calendar_event": "编辑日历事件",
+        "start_time": "开始时间 (YYYY-MM-DDTHH:MM:SS):",
+        "end_time": "结束时间 (YYYY-MM-DDTHH:MM:SS):",
+        "create": "创建",
+        "save": "保存",
+        "cancel": "取消",
+        "input_error": "输入错误",
+        "fill_required_fields": "请填写标题、开始时间和结束时间",
+        "untitled": "无标题",
+        "more_events": "+{n} 更多",
+        "confirm_delete": "确认删除",
+        "confirm_delete_email": "您确定要删除这封邮件吗？",
+        "confirm_delete_event": "您确定要删除这个事件吗？",
+        # Month names
+        "month_january": "一月",
+        "month_february": "二月",
+        "month_march": "三月",
+        "month_april": "四月",
+        "month_may": "五月",
+        "month_june": "六月",
+        "month_july": "七月",
+        "month_august": "八月",
+        "month_september": "九月",
+        "month_october": "十月",
+        "month_november": "十一月",
+        "month_december": "十二月",
+        # Weekday names
+        "weekday_sun": "日",
+        "weekday_mon": "一",
+        "weekday_tue": "二",
+        "weekday_wed": "三",
+        "weekday_thu": "四",
+        "weekday_fri": "五",
+        "weekday_sat": "六",
+    },
+    "繁體中文": {
+        "title": "LLM 郵件助手 — 測試界面",
+        "folder": "資料夾:",
+        "email_list": "郵件列表:",
+        "sign_in": "登入",
+        "sign_out": "登出",
+        "refresh": "重新整理 (7天)",
+        "email_body": "郵件正文:",
+        "compose": "撰寫",
+        "reply": "回覆",
+        "delete": "刪除",
+        "archive": "封存",
+        "mark_read": "標記已讀",
+        "summarize": "摘要",
+        "summary": "摘要:",
+        "proposals": "提議:",
+        "create_event": "建立事件",
+        "manage_calendar": "管理日曆",
+        "log": "日誌:",
+        "language": "語言:",
+        "timezone": "時區:",
+        "ui_language": "介面語言:",
+        "summary_language": "摘要語言:",
+        # Calendar window
+        "calendar_management": "日曆管理",
+        "today": "今天",
+        "refresh_calendar": "重新整理",
+        "add_event": "+ 新增事件",
+        "event_details": "事件詳情",
+        "event_title": "標題:",
+        "event_start": "開始:",
+        "event_date": "日期:",
+        "event_location": "地點:",
+        "event_description": "描述:",
+        "edit": "編輯",
+        "close": "關閉",
+        "add_calendar_event": "新增日曆事件",
+        "edit_calendar_event": "編輯日曆事件",
+        "start_time": "開始時間 (YYYY-MM-DDTHH:MM:SS):",
+        "end_time": "結束時間 (YYYY-MM-DDTHH:MM:SS):",
+        "create": "建立",
+        "save": "儲存",
+        "cancel": "取消",
+        "input_error": "輸入錯誤",
+        "fill_required_fields": "請填寫標題、開始時間和結束時間",
+        "untitled": "無標題",
+        "more_events": "+{n} 更多",
+        "confirm_delete": "確認刪除",
+        "confirm_delete_email": "您確定要刪除這封郵件嗎？",
+        "confirm_delete_event": "您確定要刪除這個事件嗎？",
+        # Month names
+        "month_january": "一月",
+        "month_february": "二月",
+        "month_march": "三月",
+        "month_april": "四月",
+        "month_may": "五月",
+        "month_june": "六月",
+        "month_july": "七月",
+        "month_august": "八月",
+        "month_september": "九月",
+        "month_october": "十月",
+        "month_november": "十一月",
+        "month_december": "十二月",
+        # Weekday names
+        "weekday_sun": "日",
+        "weekday_mon": "一",
+        "weekday_tue": "二",
+        "weekday_wed": "三",
+        "weekday_thu": "四",
+        "weekday_fri": "五",
+        "weekday_sat": "六",
+    },
+    "日本語": {
+        "title": "LLM メール — テストGUI",
+        "folder": "フォルダ:",
+        "email_list": "メールリスト:",
+        "sign_in": "サインイン",
+        "sign_out": "サインアウト",
+        "refresh": "更新 (7日)",
+        "email_body": "メール本文:",
+        "compose": "作成",
+        "reply": "返信",
+        "delete": "削除",
+        "archive": "アーカイブ",
+        "mark_read": "既読にする",
+        "summarize": "要約",
+        "summary": "要約:",
+        "proposals": "提案:",
+        "create_event": "イベント作成",
+        "manage_calendar": "カレンダー管理",
+        "log": "ログ:",
+        "language": "言語:",
+        "timezone": "タイムゾーン:",
+        "ui_language": "UI言語:",
+        "summary_language": "要約言語:",
+        # Calendar window
+        "calendar_management": "カレンダー管理",
+        "today": "今日",
+        "refresh_calendar": "更新",
+        "add_event": "+ イベント追加",
+        "event_details": "イベント詳細",
+        "event_title": "タイトル:",
+        "event_start": "開始:",
+        "event_date": "日付:",
+        "event_location": "場所:",
+        "event_description": "説明:",
+        "edit": "編集",
+        "close": "閉じる",
+        "add_calendar_event": "カレンダーイベント追加",
+        "edit_calendar_event": "カレンダーイベント編集",
+        "start_time": "開始時間 (YYYY-MM-DDTHH:MM:SS):",
+        "end_time": "終了時間 (YYYY-MM-DDTHH:MM:SS):",
+        "create": "作成",
+        "save": "保存",
+        "cancel": "キャンセル",
+        "input_error": "入力エラー",
+        "fill_required_fields": "タイトル、開始時間、終了時間を入力してください",
+        "untitled": "無題",
+        "more_events": "+{n} 件さらに",
+        "confirm_delete": "削除の確認",
+        "confirm_delete_email": "このメールを削除してもよろしいですか？",
+        "confirm_delete_event": "このイベントを削除してもよろしいですか？",
+        # Month names
+        "month_january": "1月",
+        "month_february": "2月",
+        "month_march": "3月",
+        "month_april": "4月",
+        "month_may": "5月",
+        "month_june": "6月",
+        "month_july": "7月",
+        "month_august": "8月",
+        "month_september": "9月",
+        "month_october": "10月",
+        "month_november": "11月",
+        "month_december": "12月",
+        # Weekday names
+        "weekday_sun": "日",
+        "weekday_mon": "月",
+        "weekday_tue": "火",
+        "weekday_wed": "水",
+        "weekday_thu": "木",
+        "weekday_fri": "金",
+        "weekday_sat": "土",
+    }
+}
+
 
 class LLMEmailGUI(tk.Tk):
     def __init__(self):
@@ -35,6 +327,11 @@ class LLMEmailGUI(tk.Tk):
         self.current_folder = 'INBOX'
         self.current_email_id = None
         self.calendar_events = []
+        
+        # 语言和时区设置
+        self.ui_language = "English"
+        self.summary_language = "English"
+        self.timezone_str = "Asia/Hong_Kong"
 
         self._build_ui()
         # apply dark theme after widgets are created
@@ -42,6 +339,43 @@ class LLMEmailGUI(tk.Tk):
         self._load_emails()
 
     def _build_ui(self):
+        # Settings frame at the top
+        settings_frame = ttk.Frame(self)
+        settings_frame.pack(fill=tk.X, padx=6, pady=6)
+        
+        # UI Language selection
+        ttk.Label(settings_frame, text="").pack(side=tk.LEFT, padx=(0, 4))
+        self.ui_lang_label = ttk.Label(settings_frame, text="UI Language:")
+        self.ui_lang_label.pack(side=tk.LEFT, padx=(0, 4))
+        self.ui_language_var = tk.StringVar(value=self.ui_language)
+        ui_lang_combo = ttk.Combobox(settings_frame, textvariable=self.ui_language_var,
+                                     values=["English", "简体中文", "繁體中文", "日本語"], state='readonly', width=12)
+        ui_lang_combo.pack(side=tk.LEFT, padx=(0, 10))
+        ui_lang_combo.bind('<<ComboboxSelected>>', lambda e: self._on_ui_language_change())
+        
+        # Summary Language selection
+        self.summary_lang_label = ttk.Label(settings_frame, text="Summary Language:")
+        self.summary_lang_label.pack(side=tk.LEFT, padx=(0, 4))
+        self.summary_language_var = tk.StringVar(value=self.summary_language)
+        summary_lang_combo = ttk.Combobox(settings_frame, textvariable=self.summary_language_var,
+                                          values=["English", "简体中文", "繁體中文", "日本語"], state='readonly', width=12)
+        summary_lang_combo.pack(side=tk.LEFT, padx=(0, 10))
+        summary_lang_combo.bind('<<ComboboxSelected>>', lambda e: self._on_summary_language_change())
+        
+        # Timezone selection
+        self.timezone_label = ttk.Label(settings_frame, text="Timezone:")
+        self.timezone_label.pack(side=tk.LEFT, padx=(0, 4))
+        self.timezone_var = tk.StringVar(value=self.timezone_str)
+        timezone_combo = ttk.Combobox(settings_frame, textvariable=self.timezone_var,
+                                      values=[
+                                          "Asia/Hong_Kong (UTC+08:00)", "Asia/Shanghai (UTC+08:00)", "Asia/Tokyo (UTC+09:00)",
+                                          "America/New_York (UTC-05:00)", "America/Los_Angeles (UTC-08:00)", "America/Chicago (UTC-06:00)",
+                                          "Europe/London (UTC+00:00)", "Europe/Paris (UTC+01:00)", "Europe/Berlin (UTC+01:00)",
+                                          "Australia/Sydney (UTC+10:00)", "UTC (UTC+00:00)"
+                                      ], state='readonly', width=20)
+        timezone_combo.pack(side=tk.LEFT, padx=(0, 10))
+        timezone_combo.bind('<<ComboboxSelected>>', lambda e: self._on_timezone_change())
+        
         # Left: list of emails
         left = ttk.Frame(self)
         # Keep the left frame fixed to the left (doesn't expand horizontally),
@@ -51,7 +385,8 @@ class LLMEmailGUI(tk.Tk):
         # Email folder selection
         folder_frame = ttk.Frame(left)
         folder_frame.pack(fill=tk.X, pady=(0, 6))
-        ttk.Label(folder_frame, text="Folder:").pack(side=tk.LEFT, padx=(0, 4))
+        self.folder_label = ttk.Label(folder_frame, text="Folder:")
+        self.folder_label.pack(side=tk.LEFT, padx=(0, 4))
         self.folder_var = tk.StringVar(value='INBOX')
         folder_combo = ttk.Combobox(folder_frame, textvariable=self.folder_var, 
                                     values=['INBOX', 'SENT', 'TRASH', 'ARCHIVE'], 
@@ -59,7 +394,8 @@ class LLMEmailGUI(tk.Tk):
         folder_combo.pack(side=tk.LEFT)
         folder_combo.bind('<<ComboboxSelected>>', lambda e: self._on_folder_change())
         
-        ttk.Label(left, text="Email List:").pack(anchor=tk.W)
+        self.email_list_label = ttk.Label(left, text="Email List:")
+        self.email_list_label.pack(anchor=tk.W)
         # Let the listbox fill both directions inside the left frame and expand to take available height
         self.emails_listbox = tk.Listbox(left, width=40, height=25)
         self.emails_listbox.pack(fill=tk.BOTH, expand=True)
@@ -69,19 +405,20 @@ class LLMEmailGUI(tk.Tk):
         # Keep the button row anchored at the bottom so the listbox keeps full height
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=6)
 
-        signin_btn = ttk.Button(btn_frame, text="Sign In", command=self._on_sign_in)
-        signin_btn.pack(side=tk.LEFT, padx=(0, 6))
-        signout_btn = ttk.Button(btn_frame, text="Sign Out", command=self._on_sign_out)
-        signout_btn.pack(side=tk.LEFT, padx=(0, 6))
-        refresh_btn = ttk.Button(btn_frame, text="Refresh (7d)", command=self._load_emails)
-        refresh_btn.pack(side=tk.LEFT)
+        self.signin_btn = ttk.Button(btn_frame, text="Sign In", command=self._on_sign_in)
+        self.signin_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.signout_btn = ttk.Button(btn_frame, text="Sign Out", command=self._on_sign_out)
+        self.signout_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.refresh_btn = ttk.Button(btn_frame, text="Refresh (7d)", command=self._load_emails)
+        self.refresh_btn.pack(side=tk.LEFT)
 
         # Right: email content and controls
         right = ttk.Frame(self)
         # Pack to the left of remaining space so the left frame remains stuck to the left
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-        ttk.Label(right, text="Email body:").pack(anchor=tk.W)
+        self.email_body_label = ttk.Label(right, text="Email body:")
+        self.email_body_label.pack(anchor=tk.W)
         self.body_text = tk.Text(right, height=12, wrap=tk.WORD)
         self.body_text.pack(fill=tk.X)
 
@@ -102,11 +439,13 @@ class LLMEmailGUI(tk.Tk):
 
         # ttk.Label(btn_frame, text=f"DRY RUN={settings.DRY_RUN}").pack(side=tk.LEFT, padx=8)
 
-        ttk.Label(right, text="Summary:").pack(anchor=tk.W)
+        self.summary_label = ttk.Label(right, text="Summary:")
+        self.summary_label.pack(anchor=tk.W)
         self.summary_text = tk.Text(right, height=6, wrap=tk.WORD)
         self.summary_text.pack(fill=tk.X)
 
-        ttk.Label(right, text="Proposals:").pack(anchor=tk.W)
+        self.proposals_label = ttk.Label(right, text="Proposals:")
+        self.proposals_label.pack(anchor=tk.W)
         # Scrollable proposals area with a fixed max height so controls stay visible on small windows.
         self.proposals_container = ttk.Frame(right)
         # keep a limited height so controls (Create button) are always visible on small windows
@@ -151,17 +490,107 @@ class LLMEmailGUI(tk.Tk):
         self.create_event_btn.config(width=24)
         
         # Add calendar management button
-        calendar_btn = ttk.Button(controls_frame, text="Manage Calendar", command=self._open_calendar_window)
-        calendar_btn.pack(side=tk.LEFT, padx=4, pady=4)
+        self.calendar_btn = ttk.Button(controls_frame, text="Manage Calendar", command=self._open_calendar_window)
+        self.calendar_btn.pack(side=tk.LEFT, padx=4, pady=4)
 
-        ttk.Label(right, text="Log:").pack(anchor=tk.W)
+        self.log_label = ttk.Label(right, text="Log:")
+        self.log_label.pack(anchor=tk.W)
         self.log_text = tk.Text(right, height=6, wrap=tk.WORD)
         self.log_text.pack(fill=tk.X)
+        
+        # 初始化UI文本
+        self._update_ui_texts()
+        
+        # 初始化UI文本
+        self._update_ui_texts()
 
     def _log(self, *parts: Any):
         s = " ".join(str(p) for p in parts)
         self.log_text.insert(tk.END, s + "\n")
         self.log_text.see(tk.END)
+    
+    def _update_ui_texts(self):
+        """Update all UI texts based on current language setting"""
+        lang = TRANSLATIONS.get(self.ui_language, TRANSLATIONS["English"])
+        
+        # Update window title
+        self.title(lang.get("title", "LLM Email — Test GUI"))
+        
+        # Update settings labels
+        if hasattr(self, 'ui_lang_label'):
+            self.ui_lang_label.config(text=lang.get("ui_language", "UI Language:"))
+        if hasattr(self, 'summary_lang_label'):
+            self.summary_lang_label.config(text=lang.get("summary_language", "Summary Language:"))
+        if hasattr(self, 'timezone_label'):
+            self.timezone_label.config(text=lang.get("timezone", "Timezone:"))
+        
+        # Update labels
+        if hasattr(self, 'folder_label'):
+            self.folder_label.config(text=lang.get("folder", "Folder:"))
+        if hasattr(self, 'email_list_label'):
+            self.email_list_label.config(text=lang.get("email_list", "Email List:"))
+        if hasattr(self, 'email_body_label'):
+            self.email_body_label.config(text=lang.get("email_body", "Email body:"))
+        if hasattr(self, 'summary_label'):
+            self.summary_label.config(text=lang.get("summary", "Summary:"))
+        if hasattr(self, 'proposals_label'):
+            self.proposals_label.config(text=lang.get("proposals", "Proposals:"))
+        if hasattr(self, 'log_label'):
+            self.log_label.config(text=lang.get("log", "Log:"))
+        
+        # Update buttons
+        if hasattr(self, 'signin_btn'):
+            self.signin_btn.config(text=lang.get("sign_in", "Sign In"))
+        if hasattr(self, 'signout_btn'):
+            self.signout_btn.config(text=lang.get("sign_out", "Sign Out"))
+        if hasattr(self, 'refresh_btn'):
+            self.refresh_btn.config(text=lang.get("refresh", "Refresh (7d)"))
+        if hasattr(self, 'compose_btn'):
+            self.compose_btn.config(text=lang.get("compose", "Compose"))
+        if hasattr(self, 'reply_btn'):
+            self.reply_btn.config(text=lang.get("reply", "Reply"))
+        if hasattr(self, 'delete_btn'):
+            self.delete_btn.config(text=lang.get("delete", "Delete"))
+        if hasattr(self, 'archive_btn'):
+            self.archive_btn.config(text=lang.get("archive", "Archive"))
+        if hasattr(self, 'mark_read_btn'):
+            self.mark_read_btn.config(text=lang.get("mark_read", "Mark Read"))
+        if hasattr(self, 'summarize_btn'):
+            self.summarize_btn.config(text=lang.get("summarize", "Summarize"))
+        if hasattr(self, 'create_event_btn'):
+            self.create_event_btn.config(text=lang.get("create_event", "Create event"))
+        if hasattr(self, 'calendar_btn'):
+            self.calendar_btn.config(text=lang.get("manage_calendar", "Manage Calendar"))
+        
+        # Update calendar window if it exists
+        if hasattr(self, '_calendar_window') and self._calendar_window.winfo_exists():
+            self._calendar_window.title(lang.get("calendar_management", "Calendar Management"))
+            if hasattr(self, '_calendar_today_btn'):
+                self._calendar_today_btn.config(text=lang.get("today", "Today"))
+            if hasattr(self, '_calendar_refresh_btn'):
+                self._calendar_refresh_btn.config(text=lang.get("refresh_calendar", "Refresh"))
+            if hasattr(self, '_calendar_add_btn'):
+                self._calendar_add_btn.config(text=lang.get("add_event", "+ Add Event"))
+            # Refresh calendar to update month names and weekdays
+            self._calendar_refresh()
+    
+    def _on_ui_language_change(self):
+        """Called when UI language selection changes"""
+        self.ui_language = self.ui_language_var.get()
+        self._update_ui_texts()
+    
+    def _on_summary_language_change(self):
+        """Called when summary language selection changes"""
+        self.summary_language = self.summary_language_var.get()
+    
+    def _on_timezone_change(self):
+        """Called when timezone selection changes"""
+        timezone_value = self.timezone_var.get()
+        # Extract timezone name if format includes UTC offset (e.g., "Asia/Hong_Kong (UTC+08:00)" -> "Asia/Hong_Kong")
+        if " (" in timezone_value:
+            self.timezone_str = timezone_value.split(" (")[0]
+        else:
+            self.timezone_str = timezone_value
 
     def _load_emails(self):
         # 根据当前选择的文件夹加载邮件
@@ -297,6 +726,8 @@ class LLMEmailGUI(tk.Tk):
                 email_received_time=email.get("received"),
                 current_time=None,
                 email_sender=email.get("from"),
+                summary_language=self.summary_language,
+                timezone_str=self.timezone_str,
             )
         except Exception as exc:
             self._log("LLM error:", exc)
@@ -602,7 +1033,7 @@ class LLMEmailGUI(tk.Tk):
             messagebox.showwarning("No Email", "Please select an email first")
             return
         
-        if not messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this email?"):
+        if not messagebox.askyesno(self._get_translation("confirm_delete"), self._get_translation("confirm_delete_email")):
             return
         
         t = threading.Thread(target=self._delete_email_worker, args=(self.current_email_id,))
@@ -674,6 +1105,11 @@ class LLMEmailGUI(tk.Tk):
             self._log("Mark email error:", exc)
             messagebox.showerror("Mark Error", str(exc))
 
+    def _get_translation(self, key: str) -> str:
+        """Get translated text for current UI language"""
+        lang = TRANSLATIONS.get(self.ui_language, TRANSLATIONS["English"])
+        return lang.get(key, key)
+    
     def _open_calendar_window(self):
         """Open calendar management window (month grid view)"""
         if hasattr(self, '_calendar_window') and self._calendar_window.winfo_exists():
@@ -681,7 +1117,7 @@ class LLMEmailGUI(tk.Tk):
             return
         
         window = tk.Toplevel(self)
-        window.title("Calendar Management")
+        window.title(self._get_translation("calendar_management"))
         window.geometry("1200x800")
         self._calendar_window = window
         
@@ -702,8 +1138,8 @@ class LLMEmailGUI(tk.Tk):
         prev_btn = ttk.Button(nav_left_frame, text="◀", width=3, command=lambda: self._calendar_navigate(-1))
         prev_btn.pack(side=tk.LEFT, padx=2)
         
-        today_btn = ttk.Button(nav_left_frame, text="Today", command=self._calendar_go_today)
-        today_btn.pack(side=tk.LEFT, padx=2)
+        self._calendar_today_btn = ttk.Button(nav_left_frame, text=self._get_translation("today"), command=self._calendar_go_today)
+        self._calendar_today_btn.pack(side=tk.LEFT, padx=2)
         
         next_btn = ttk.Button(nav_left_frame, text="▶", width=3, command=lambda: self._calendar_navigate(1))
         next_btn.pack(side=tk.LEFT, padx=2)
@@ -716,11 +1152,11 @@ class LLMEmailGUI(tk.Tk):
         nav_right_frame = ttk.Frame(nav_frame)
         nav_right_frame.pack(side=tk.RIGHT)
         
-        refresh_btn = ttk.Button(nav_right_frame, text="Refresh", command=self._calendar_refresh)
-        refresh_btn.pack(side=tk.LEFT, padx=2)
+        self._calendar_refresh_btn = ttk.Button(nav_right_frame, text=self._get_translation("refresh_calendar"), command=self._calendar_refresh)
+        self._calendar_refresh_btn.pack(side=tk.LEFT, padx=2)
         
-        add_btn = ttk.Button(nav_right_frame, text="+ Add Event", command=lambda: self._on_add_calendar_event(window))
-        add_btn.pack(side=tk.LEFT, padx=2)
+        self._calendar_add_btn = ttk.Button(nav_right_frame, text=self._get_translation("add_event"), command=lambda: self._on_add_calendar_event(window))
+        self._calendar_add_btn.pack(side=tk.LEFT, padx=2)
         
         # Main content area
         main_frame = ttk.Frame(window)
@@ -768,9 +1204,9 @@ class LLMEmailGUI(tk.Tk):
             widget.destroy()
         
         # Update month label
-        month_names = ['January', 'February', 'March', 'April', 'May', 'June',
-                      'July', 'August', 'September', 'October', 'November', 'December']
-        month_name = month_names[self._calendar_view_month - 1]
+        month_keys = ['month_january', 'month_february', 'month_march', 'month_april', 'month_may', 'month_june',
+                      'month_july', 'month_august', 'month_september', 'month_october', 'month_november', 'month_december']
+        month_name = self._get_translation(month_keys[self._calendar_view_month - 1])
         self._calendar_month_label.config(text=f"{month_name} {self._calendar_view_year}")
         
         # Load events
@@ -821,7 +1257,8 @@ class LLMEmailGUI(tk.Tk):
     def _render_calendar_grid(self, container, events_by_date: Dict):
         """Render calendar grid"""
         # Weekday headers
-        weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        weekday_keys = ['weekday_sun', 'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat']
+        weekdays = [self._get_translation(key) for key in weekday_keys]
         header_frame = tk.Frame(container, bg="#2b2b2b")
         header_frame.pack(fill=tk.X, pady=(0, 2))
         
@@ -919,7 +1356,7 @@ class LLMEmailGUI(tk.Tk):
             if date_obj in events_by_date:
                 events = events_by_date[date_obj]
                 for event in events[:3]:  # Show max 3 events
-                    summary = event.get('summary', 'Untitled')
+                    summary = event.get('summary', self._get_translation("untitled"))
                     # Truncate long titles
                     if len(summary) > 15:
                         summary = summary[:12] + '...'
@@ -932,7 +1369,8 @@ class LLMEmailGUI(tk.Tk):
                     day_label.bind("<Button-1>", lambda e, d=date_obj: self._on_calendar_date_click(d))
                 
                 if len(events) > 3:
-                    more_label = tk.Label(events_frame, text=f"+{len(events) - 3} more", bg=cell_bg, fg="#999999",
+                    more_text = self._get_translation("more_events").format(n=len(events) - 3)
+                    more_label = tk.Label(events_frame, text=more_text, bg=cell_bg, fg="#999999",
                                         font=('Arial', 7), anchor='w', padx=4)
                     more_label.pack(fill=tk.X, pady=1)
             
@@ -948,29 +1386,29 @@ class LLMEmailGUI(tk.Tk):
         """Click on calendar event"""
         # Show event details dialog
         dialog = tk.Toplevel(self._calendar_window)
-        dialog.title("Event Details")
+        dialog.title(self._get_translation("event_details"))
         dialog.geometry("500x400")
         
-        summary = event.get('summary', 'Untitled')
+        summary = event.get('summary', self._get_translation("untitled"))
         description = event.get('description', '')
         start = event.get('start', {})
         end = event.get('end', {})
         location = event.get('location', '')
         
-        ttk.Label(dialog, text="Title:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=(10, 0))
+        ttk.Label(dialog, text=self._get_translation("event_title"), font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=(10, 0))
         ttk.Label(dialog, text=summary, font=('Arial', 12)).pack(anchor=tk.W, padx=20, pady=2)
         
         if start.get('dateTime'):
             start_time = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
-            ttk.Label(dialog, text=f"Start: {start_time.strftime('%Y-%m-%d %H:%M')}").pack(anchor=tk.W, padx=20, pady=2)
+            ttk.Label(dialog, text=f"{self._get_translation('event_start')} {start_time.strftime('%Y-%m-%d %H:%M')}").pack(anchor=tk.W, padx=20, pady=2)
         elif start.get('date'):
-            ttk.Label(dialog, text=f"Date: {start['date']}").pack(anchor=tk.W, padx=20, pady=2)
+            ttk.Label(dialog, text=f"{self._get_translation('event_date')} {start['date']}").pack(anchor=tk.W, padx=20, pady=2)
         
         if location:
-            ttk.Label(dialog, text=f"Location: {location}").pack(anchor=tk.W, padx=20, pady=2)
+            ttk.Label(dialog, text=f"{self._get_translation('event_location')} {location}").pack(anchor=tk.W, padx=20, pady=2)
         
         if description:
-            ttk.Label(dialog, text="Description:").pack(anchor=tk.W, padx=10, pady=(10, 0))
+            ttk.Label(dialog, text=self._get_translation("event_description")).pack(anchor=tk.W, padx=10, pady=(10, 0))
             desc_text = tk.Text(dialog, height=8, wrap=tk.WORD)
             desc_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
             desc_text.insert("1.0", description)
@@ -978,9 +1416,9 @@ class LLMEmailGUI(tk.Tk):
         
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill=tk.X, padx=10, pady=10)
-        ttk.Button(btn_frame, text="Edit", command=lambda: (dialog.destroy(), self._on_edit_calendar_event_by_id(event.get('id')))).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Delete", command=lambda: (dialog.destroy(), self._on_delete_calendar_event_by_id(event.get('id')))).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text=self._get_translation("edit"), command=lambda: (dialog.destroy(), self._on_edit_calendar_event_by_id(event.get('id')))).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text=self._get_translation("delete"), command=lambda: (dialog.destroy(), self._on_delete_calendar_event_by_id(event.get('id')))).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text=self._get_translation("close"), command=dialog.destroy).pack(side=tk.RIGHT)
     
     def _on_calendar_date_click(self, date_obj):
         """Single click on date (can be extended)"""
@@ -994,24 +1432,24 @@ class LLMEmailGUI(tk.Tk):
         end_str = (start_datetime + timedelta(hours=1)).isoformat()
         
         dialog = tk.Toplevel(self._calendar_window)
-        dialog.title("Add Calendar Event")
+        dialog.title(self._get_translation("add_calendar_event"))
         dialog.geometry("500x400")
         
-        ttk.Label(dialog, text="Title:").pack(anchor=tk.W, padx=10, pady=(10, 0))
+        ttk.Label(dialog, text=self._get_translation("event_title")).pack(anchor=tk.W, padx=10, pady=(10, 0))
         title_entry = tk.Entry(dialog, width=50)
         title_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         
-        ttk.Label(dialog, text="Start Time (YYYY-MM-DDTHH:MM:SS):").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("start_time")).pack(anchor=tk.W, padx=10)
         start_entry = tk.Entry(dialog, width=50)
         start_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         start_entry.insert(0, start_str)
         
-        ttk.Label(dialog, text="End Time (YYYY-MM-DDTHH:MM:SS):").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("end_time")).pack(anchor=tk.W, padx=10)
         end_entry = tk.Entry(dialog, width=50)
         end_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         end_entry.insert(0, end_str)
         
-        ttk.Label(dialog, text="Description:").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("event_description")).pack(anchor=tk.W, padx=10)
         desc_text = tk.Text(dialog, height=8, wrap=tk.WORD)
         desc_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
         
@@ -1021,7 +1459,7 @@ class LLMEmailGUI(tk.Tk):
             end = end_entry.get().strip()
             description = desc_text.get("1.0", tk.END).strip()
             if not title or not start or not end:
-                messagebox.showwarning("Input Error", "Please fill in title, start time, and end time")
+                messagebox.showwarning(self._get_translation("input_error"), self._get_translation("fill_required_fields"))
                 return
             dialog.destroy()
             t = threading.Thread(target=self._add_calendar_event_worker, args=(title, start, end, description))
@@ -1032,8 +1470,8 @@ class LLMEmailGUI(tk.Tk):
         
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill=tk.X, padx=10, pady=10)
-        ttk.Button(btn_frame, text="Create", command=create_event).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text=self._get_translation("create"), command=create_event).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_frame, text=self._get_translation("cancel"), command=dialog.destroy).pack(side=tk.RIGHT)
     
     def _on_edit_calendar_event_by_id(self, event_id):
         """Edit event by event ID"""
@@ -1046,27 +1484,27 @@ class LLMEmailGUI(tk.Tk):
         
         # Use existing edit dialog
         dialog = tk.Toplevel(self._calendar_window)
-        dialog.title("Edit Calendar Event")
+        dialog.title(self._get_translation("edit_calendar_event"))
         dialog.geometry("500x400")
         
-        ttk.Label(dialog, text="Title:").pack(anchor=tk.W, padx=10, pady=(10, 0))
+        ttk.Label(dialog, text=self._get_translation("event_title")).pack(anchor=tk.W, padx=10, pady=(10, 0))
         title_entry = tk.Entry(dialog, width=50)
         title_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         title_entry.insert(0, event.get('summary', ''))
         
-        ttk.Label(dialog, text="Start Time (YYYY-MM-DDTHH:MM:SS):").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("start_time")).pack(anchor=tk.W, padx=10)
         start_entry = tk.Entry(dialog, width=50)
         start_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         start_val = event.get('start', {}).get('dateTime', event.get('start', {}).get('date', ''))
         start_entry.insert(0, start_val)
         
-        ttk.Label(dialog, text="End Time (YYYY-MM-DDTHH:MM:SS):").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("end_time")).pack(anchor=tk.W, padx=10)
         end_entry = tk.Entry(dialog, width=50)
         end_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         end_val = event.get('end', {}).get('dateTime', event.get('end', {}).get('date', ''))
         end_entry.insert(0, end_val)
         
-        ttk.Label(dialog, text="Description:").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("event_description")).pack(anchor=tk.W, padx=10)
         desc_text = tk.Text(dialog, height=8, wrap=tk.WORD)
         desc_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
         desc_text.insert("1.0", event.get('description', ''))
@@ -1077,7 +1515,7 @@ class LLMEmailGUI(tk.Tk):
             end = end_entry.get().strip()
             description = desc_text.get("1.0", tk.END).strip()
             if not title or not start or not end:
-                messagebox.showwarning("Input Error", "Please fill in title, start time, and end time")
+                messagebox.showwarning(self._get_translation("input_error"), self._get_translation("fill_required_fields"))
                 return
             dialog.destroy()
             t = threading.Thread(target=self._edit_calendar_event_worker, args=(event_id, title, start, end, description))
@@ -1088,14 +1526,14 @@ class LLMEmailGUI(tk.Tk):
         
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill=tk.X, padx=10, pady=10)
-        ttk.Button(btn_frame, text="Save", command=update_event).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text=self._get_translation("save"), command=update_event).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_frame, text=self._get_translation("cancel"), command=dialog.destroy).pack(side=tk.RIGHT)
     
     def _on_delete_calendar_event_by_id(self, event_id):
         """Delete event by event ID"""
         if not event_id:
             return
-        if not messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this event?"):
+        if not messagebox.askyesno(self._get_translation("confirm_delete"), self._get_translation("confirm_delete_event")):
             return
         
         t = threading.Thread(target=self._delete_calendar_event_worker, args=(event_id,))
@@ -1107,22 +1545,22 @@ class LLMEmailGUI(tk.Tk):
     def _on_add_calendar_event(self, parent_window=None):
         """Add calendar event"""
         dialog = tk.Toplevel(parent_window or self)
-        dialog.title("Add Calendar Event")
+        dialog.title(self._get_translation("add_calendar_event"))
         dialog.geometry("500x400")
         
-        ttk.Label(dialog, text="Title:").pack(anchor=tk.W, padx=10, pady=(10, 0))
+        ttk.Label(dialog, text=self._get_translation("event_title")).pack(anchor=tk.W, padx=10, pady=(10, 0))
         title_entry = tk.Entry(dialog, width=50)
         title_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         
-        ttk.Label(dialog, text="Start Time (YYYY-MM-DDTHH:MM:SS):").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("start_time")).pack(anchor=tk.W, padx=10)
         start_entry = tk.Entry(dialog, width=50)
         start_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         
-        ttk.Label(dialog, text="End Time (YYYY-MM-DDTHH:MM:SS):").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("end_time")).pack(anchor=tk.W, padx=10)
         end_entry = tk.Entry(dialog, width=50)
         end_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
         
-        ttk.Label(dialog, text="Description:").pack(anchor=tk.W, padx=10)
+        ttk.Label(dialog, text=self._get_translation("event_description")).pack(anchor=tk.W, padx=10)
         desc_text = tk.Text(dialog, height=8, wrap=tk.WORD)
         desc_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
         
@@ -1132,7 +1570,7 @@ class LLMEmailGUI(tk.Tk):
             end = end_entry.get().strip()
             description = desc_text.get("1.0", tk.END).strip()
             if not title or not start or not end:
-                messagebox.showwarning("Input Error", "Please fill in title, start time, and end time")
+                messagebox.showwarning(self._get_translation("input_error"), self._get_translation("fill_required_fields"))
                 return
             dialog.destroy()
             t = threading.Thread(target=self._add_calendar_event_worker, args=(title, start, end, description))
@@ -1141,8 +1579,8 @@ class LLMEmailGUI(tk.Tk):
         
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill=tk.X, padx=10, pady=10)
-        ttk.Button(btn_frame, text="Create", command=create_event).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text=self._get_translation("create"), command=create_event).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_frame, text=self._get_translation("cancel"), command=dialog.destroy).pack(side=tk.RIGHT)
 
     def _add_calendar_event_worker(self, title, start, end, description):
         """Add calendar event in background thread"""
@@ -1252,7 +1690,7 @@ class LLMEmailGUI(tk.Tk):
             messagebox.showwarning("No Selection", "Please select an event first")
             return
         
-        if not messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this event?"):
+        if not messagebox.askyesno(self._get_translation("confirm_delete"), self._get_translation("confirm_delete_event")):
             return
         
         idx = sel[0]
