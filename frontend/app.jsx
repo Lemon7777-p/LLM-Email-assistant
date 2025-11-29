@@ -21,6 +21,56 @@ const ModernApp = ()=>{
   const [isPrefetching, setIsPrefetching] = useState(false);
   const [isFetchingEmails, setIsFetchingEmails] = useState(false);
 
+  const applyEmailCacheSnapshot = (snapshot) => {
+    if (!snapshot || !Array.isArray(snapshot.emails) || !snapshot.emails.length) {
+      return;
+    }
+    const pseudoMailbox = {
+      active_folder: 'inbox',
+      page: 1,
+      per_page: snapshot.emails.length,
+      days: snapshot.window_days || 14,
+      folders: {
+        inbox: {
+          label: 'INBOX',
+          page: 1,
+          has_next_page: false,
+          items: snapshot.emails,
+        },
+      },
+    };
+    setMailbox((prev) => prev || pseudoMailbox);
+  };
+
+  const applyCalendarCacheSnapshot = (snapshot) => {
+    if (!snapshot || !Array.isArray(snapshot.events) || !snapshot.events.length) {
+      return;
+    }
+    setCalendarEvents((prev) => (Array.isArray(prev) && prev.length ? prev : snapshot.events));
+  };
+
+  const hydrateFromSnapshots = async () => {
+    try {
+      const cacheResponse = await fetch('/emails/cache');
+      if (cacheResponse.ok) {
+        const snapshot = await cacheResponse.json();
+        applyEmailCacheSnapshot(snapshot);
+      }
+    } catch (err) {
+      console.warn('Emails cache hydration failed', err);
+    }
+
+    try {
+      const calendarResponse = await fetch('/calendar/cache');
+      if (calendarResponse.ok) {
+        const snapshot = await calendarResponse.json();
+        applyCalendarCacheSnapshot(snapshot);
+      }
+    } catch (err) {
+      console.warn('Calendar cache hydration failed', err);
+    }
+  };
+
   useEffect(() => {
     const handlePopState = () => setPage(window.location.pathname);
     window.addEventListener('popstate', handlePopState);
@@ -71,7 +121,11 @@ const ModernApp = ()=>{
 
       if (!background) {
         setMailbox(emailsData);
-        if (emailsData?.active_folder && emailsData.active_folder !== activeFolder) {
+        
+        const requestedFolder = folder || activeFolder;
+        const isCustomLabel = requestedFolder?.startsWith('label:');
+
+        if (!isCustomLabel && emailsData?.active_folder && emailsData.active_folder !== activeFolder) {
           setActiveFolder(emailsData.active_folder);
         }
       }
@@ -173,6 +227,25 @@ const ModernApp = ()=>{
     }
   };
 
+  const handleAutomationActivity = async ({ resetPage = true } = {}) => {
+    setEmailCache({});
+    setPrefetchQueue([]);
+    setSelectedEmail(null);
+
+    if (!isLoggedIn) {
+      return;
+    }
+
+    const targetPage = resetPage ? 1 : emailPage;
+
+    if (resetPage && emailPage !== 1) {
+      setEmailPage(1);
+      return;
+    }
+
+    await fetchEmails({ folder: activeFolder, page: targetPage, force: true });
+  };
+
   useEffect(() => {
     const initialize = async () => {
         setLoading(true);
@@ -182,6 +255,8 @@ const ModernApp = ()=>{
                 const userData = await userResponse.json();
                 setUser(userData);
                 setIsLoggedIn(true);
+
+          await hydrateFromSnapshots();
 
                 await fetchEmails({ folder: activeFolder, page: emailPage });
 
@@ -326,7 +401,7 @@ const ModernApp = ()=>{
           onResetMonth={handleCalendarToday}
         />
       );
-      case 'settings': return <SettingsView user={user} />;
+      case 'settings': return <SettingsView user={user} onAutomationActivity={handleAutomationActivity} />;
       default: return <HomeView />;
     }
   }

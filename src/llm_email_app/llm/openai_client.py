@@ -11,7 +11,7 @@ Behaviour contract (simple):
 
 The wrapper tries to parse JSON returned by the model. The prompt asks the model to reply with JSON only.
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 import os
 import json
 import re
@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import logging
 
 from llm_email_app.config import settings
+
 
 def _extract_json(text: str) -> Optional[dict]:
     """Try to extract the first JSON object from a model response.
@@ -58,13 +59,20 @@ class OpenAIClient:
         This avoids hard-coding model names or provider URLs in code; they should be provided
         by environment variables at deploy time.
         """
-        self.api_key = api_key or settings.OPENAI_API_KEY
-        self.model = model or os.getenv("OPENAI_MODEL")
-        # allow alternative env var names for base URL
-        self.api_base = api_base or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_API_URL")
+        raw_api_key = api_key if api_key is not None else settings.OPENAI_API_KEY
+        self.api_key = (raw_api_key or '').strip() or None
 
-        # prefer explicit base URL: if set, use requests to call an OpenAI-compatible endpoint
-        self._use_requests = bool(self.api_base)
+        raw_model = model if model is not None else os.getenv("OPENAI_MODEL")
+        self.model = (raw_model or '').strip() or None
+
+        # allow alternative env var names for base URL
+        raw_base = (
+            api_base if api_base is not None else os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_API_URL")
+        )
+        self.api_base = (raw_base or '').strip() or None
+
+        # prefer explicit base URL: only use requests path when base, model, and key are all configured
+        self._use_requests = bool(self.api_base and self.api_key and self.model)
         self._client = None
 
         if not self._use_requests and self.api_key:
@@ -78,6 +86,97 @@ class OpenAIClient:
                 # SDK not available; fall back to requests if api_base provided, else to stub
                 self._client = None
 
+    def _is_ready(self) -> bool:
+        return bool(self._client or self._use_requests)
+
+    def _chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        context_tag: str,
+    ) -> Tuple[str, Any]:
+        if not self.model:
+            raise RuntimeError('Model id must be provided via OPENAI_MODEL or constructor argument')
+        if self._use_requests:
+            if not self.api_key or not self.model:
+                raise RuntimeError('API key and model are required when OPENAI_API_BASE is set')
+            url = self.api_base.rstrip('/') + '/v1/chat/completions'
+            headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
+            payload = {
+                'model': self.model,
+                'messages': messages,
+                'temperature': temperature,
+                'max_tokens': max_tokens,
+            }
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            r.raise_for_status()
+            resp = r.json()
+            logger.info('=== Full Raw LLM Response (%s, requests) ===', context_tag)
+            logger.info(json.dumps(resp, indent=2, ensure_ascii=False))
+            choices = resp.get('choices', [])
+            text = ''
+            if choices:
+                first = choices[0]
+                if isinstance(first, dict):
+                    text = first.get('message', {}).get('content', '') or first.get('text', '')
+            logger.info('=== Extracted Text Content (%s) ===', context_tag)
+            logger.info(text)
+            return text, resp
+
+        if not self._client:
+            raise RuntimeError('OpenAI client not configured')
+
+        resp = self._client.ChatCompletion.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        logger.info('=== Full Raw LLM Response (%s, SDK) ===', context_tag)
+        if isinstance(resp, dict):
+            logger.info(json.dumps(resp, indent=2, ensure_ascii=False))
+        else:
+            try:
+                resp_dict = {
+                    'id': getattr(resp, 'id', None),
+                    'object': getattr(resp, 'object', None),
+                    'created': getattr(resp, 'created', None),
+                    'model': getattr(resp, 'model', None),
+                    'choices': [
+                        {
+                            'index': getattr(choice, 'index', None),
+                            'message': {
+                                'role': getattr(getattr(choice, 'message', None), 'role', None),
+                                'content': getattr(getattr(choice, 'message', None), 'content', None),
+                            } if hasattr(choice, 'message') else None,
+                            'finish_reason': getattr(choice, 'finish_reason', None),
+                        }
+                        for choice in (getattr(resp, 'choices', []) or [])
+                    ],
+                }
+                logger.info(json.dumps(resp_dict, indent=2, ensure_ascii=False))
+            except Exception as exc:
+                logger.info('Raw response (object): %s', resp)
+                logger.info('Could not convert to dict: %s', exc)
+
+        text = ''
+        choices = resp.get('choices') if isinstance(resp, dict) else getattr(resp, 'choices', None)
+        if choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                text = first.get('message', {}).get('content', '') or first.get('text', '')
+            else:
+                msg = getattr(first, 'message', None)
+                text = msg.get('content') if isinstance(msg, dict) else getattr(msg, 'content', '')
+                if not text:
+                    text = getattr(first, 'text', '')
+
+        logger.info('=== Extracted Text Content (%s) ===', context_tag)
+        logger.info(text)
+        return text, resp
+
     def summarize_email(self, email_body: str, email_received_time: Optional[str] = None, current_time: Optional[str] = None, email_sender: Optional[str] = None, temperature: float = 0.0, max_tokens: int = settings.MAX_TOKEN, return_raw_response: bool = False) -> Dict[str, Any]:
         """Summarize an email and propose calendar events.
 
@@ -88,7 +187,7 @@ class OpenAIClient:
             max_tokens = settings.MAX_TOKEN
         
         # If neither requests-based nor SDK client is configured, fall back to stub
-        if not self._client and not self._use_requests:
+        if not self._is_ready():
             # deterministic fallback used in tests and local dev
             return {
                 "text": "Stub summary: This email proposes a meeting next week to discuss the Q4 roadmap.",
@@ -150,149 +249,25 @@ class OpenAIClient:
              "When parsing dates, consider the sender's location and use the appropriate date format (DD/MM for default or unspecified location, MM/DD for US/Canada)."
         )
 
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt},
+        ]
+
         try:
-            if self._use_requests:
-                # call custom OpenAI-format endpoint using requests
-                if not self.api_key or not self.model:
-                    logger.warning("API key and model are required for custom API base. Falling back to stub.")
-                    # Fall back to the stub response by re-evaluating the initial condition
-                    return self.summarize_email(email_body, email_received_time, current_time, email_sender, temperature, max_tokens)
-                if not self.model:
-                    raise RuntimeError("Model id must be provided via OPENAI_MODEL when using a remote API base")
-
-                url = self.api_base.rstrip('/') + '/v1/chat/completions'
-                headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
-                payload = {
-                    'model': self.model,
-                    'messages': [
-                        {'role': 'system', 'content': system_prompt},
-                        {'role': 'user', 'content': user_prompt},
-                    ],
-                    'temperature': temperature,
-                    'max_tokens': max_tokens,
-                }
-                r = requests.post(url, headers=headers, json=payload, timeout=30)
-                r.raise_for_status()
-                resp = r.json()
-                # Log full raw response for debugging
-                logger.info("=== Full Raw LLM Response (requests) ===")
-                logger.info(json.dumps(resp, indent=2, ensure_ascii=False))
-                # extract content similar to SDK shape
-                choices = resp.get('choices', [])
-                text = ''
-                if choices:
-                    c0 = choices[0]
-                    # some providers put content at message.content
-                    if isinstance(c0, dict):
-                        text = c0.get('message', {}).get('content', '') or c0.get('text', '')
-                    else:
-                        text = ''
-                # Log extracted text content
-                logger.info("=== Extracted Text Content ===")
-                logger.info(text)
-
-            else:
-                # use openai SDK
-                resp = self._client.ChatCompletion.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-
-                # Log full raw response for debugging
-                logger.info("=== Full Raw LLM Response (SDK) ===")
-                if isinstance(resp, dict):
-                    logger.info(json.dumps(resp, indent=2, ensure_ascii=False))
-                else:
-                    # For object-like responses, try to convert to dict
-                    try:
-                        resp_dict = {
-                            "id": getattr(resp, "id", None),
-                            "object": getattr(resp, "object", None),
-                            "created": getattr(resp, "created", None),
-                            "model": getattr(resp, "model", None),
-                            "choices": [
-                                {
-                                    "index": getattr(c, "index", None),
-                                    "message": {
-                                        "role": getattr(getattr(c, "message", None), "role", None),
-                                        "content": getattr(getattr(c, "message", None), "content", None),
-                                    } if hasattr(c, "message") else None,
-                                    "finish_reason": getattr(c, "finish_reason", None),
-                                } for c in (getattr(resp, "choices", []) or [])
-                            ],
-                            "usage": {
-                                "prompt_tokens": getattr(getattr(resp, "usage", None), "prompt_tokens", None),
-                                "completion_tokens": getattr(getattr(resp, "usage", None), "completion_tokens", None),
-                                "total_tokens": getattr(getattr(resp, "usage", None), "total_tokens", None),
-                            } if hasattr(resp, "usage") else None,
-                        }
-                        logger.info(json.dumps(resp_dict, indent=2, ensure_ascii=False))
-                    except Exception as e:
-                        logger.info(f"Raw response (object): {resp}")
-                        logger.info(f"Could not convert to dict: {e}")
-
-                text = ""
-                # OpenAI ChatCompletion response shape: choices[0].message.content
-                choices = resp.get("choices") if isinstance(resp, dict) else getattr(resp, "choices", None)
-                if choices:
-                    first = choices[0]
-                    # support both dict-like and object-like responses
-                    if isinstance(first, dict):
-                        text = first.get("message", {}).get("content", "")
-                    else:
-                        msg = getattr(first, "message", None)
-                        text = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
-
-                if not text:
-                    # some SDK versions put content directly at choices[0].text
-                    if isinstance(choices[0], dict):
-                        text = choices[0].get("text", "")
-                
-                # Log extracted text content
-                logger.info("=== Extracted Text Content ===")
-                logger.info(text)
+            text, raw_response = self._chat_completion(
+                messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                context_tag='summarize',
+            )
 
             parsed = _extract_json(text)
             result = parsed if parsed is not None else {"text": text.strip(), "proposals": []}
             
             # Include raw response in result if requested
             if return_raw_response:
-                if self._use_requests:
-                    result["_raw_response"] = resp
-                else:
-                    # For SDK responses, convert to dict if needed
-                    if isinstance(resp, dict):
-                        result["_raw_response"] = resp
-                    else:
-                        try:
-                            result["_raw_response"] = {
-                                "id": getattr(resp, "id", None),
-                                "object": getattr(resp, "object", None),
-                                "created": getattr(resp, "created", None),
-                                "model": getattr(resp, "model", None),
-                                "choices": [
-                                    {
-                                        "index": getattr(c, "index", None),
-                                        "message": {
-                                            "role": getattr(getattr(c, "message", None), "role", None),
-                                            "content": getattr(getattr(c, "message", None), "content", None),
-                                        } if hasattr(c, "message") else None,
-                                        "finish_reason": getattr(c, "finish_reason", None),
-                                    } for c in (getattr(resp, "choices", []) or [])
-                                ],
-                                "usage": {
-                                    "prompt_tokens": getattr(getattr(resp, "usage", None), "prompt_tokens", None),
-                                    "completion_tokens": getattr(getattr(resp, "usage", None), "completion_tokens", None),
-                                    "total_tokens": getattr(getattr(resp, "usage", None), "total_tokens", None),
-                                } if hasattr(resp, "usage") else None,
-                            }
-                        except Exception:
-                            result["_raw_response"] = str(resp)
+                result["_raw_response"] = raw_response
                 result["_raw_text"] = text
             
             return result
@@ -300,4 +275,102 @@ class OpenAIClient:
         except Exception as e:
             # On API error, raise to let caller decide; include message for debugging
             raise RuntimeError(f"OpenAI-format API call failed: {e}")
+
+    def evaluate_label_rules(
+        self,
+        email_body: str,
+        subject: str,
+        sender: str,
+        rules: List[Dict[str, Any]],
+        temperature: float = 0.0,
+        max_tokens: int = 512,
+    ) -> Dict[str, Any]:
+        """Evaluate auto-label rules using LLM (or heuristics when LLM unavailable).
+
+        Returns a dict like {"matches": [{"rule_id": str, "confidence": float, "explanation": str}]}
+        """
+
+        if not rules:
+            return {"matches": []}
+
+        if max_tokens is None:
+            max_tokens = min(settings.MAX_TOKEN, 512)
+
+        corpus = "\n".join(filter(None, [subject or "", sender or "", email_body or ""])).lower()
+        if not self._is_ready():
+            matches: List[Dict[str, Any]] = []
+            for rule in rules:
+                rule_id = rule.get('id') or rule.get('rule_id')
+                label = (rule.get('label') or '').strip()
+                reason = (rule.get('reason') or '').strip()
+                if not rule_id or not (label or reason):
+                    continue
+                heuristics = [label.lower()] if label else []
+                heuristics += [token.lower() for token in reason.split() if len(token) > 3]
+                if any(token and token in corpus for token in heuristics):
+                    matches.append({
+                        'rule_id': rule_id,
+                        'confidence': 0.55,
+                        'explanation': 'Matched via offline keyword heuristic when LLM unavailable.'
+                    })
+            return {'matches': matches}
+
+        payload = {
+            'email': {
+                'subject': subject or '',
+                'sender': sender or '',
+                'body': email_body or '',
+            },
+            'rules': [
+                {
+                    'id': rule.get('id') or rule.get('rule_id'),
+                    'label': rule.get('label', ''),
+                    'reason': rule.get('reason', ''),
+                }
+                for rule in rules
+                if rule.get('id') or rule.get('rule_id')
+            ],
+        }
+
+        system_prompt = (
+            'You are an email triage assistant. '
+            'Given a single email and a list of labeling rules, return JSON only with matches. '
+            'Each match references the rule id and includes a short explanation plus confidence (0-1). '
+            'Only match a rule when the email clearly satisfies the described condition.'
+        )
+
+        user_prompt = (
+            "Email and rules (JSON):\n" +
+            json.dumps(payload, ensure_ascii=False, indent=2) +
+            "\nRespond strictly with JSON shaped as {\"matches\": [{\"rule_id\": \"<id>\", \"confidence\": 0-1, \"explanation\": \"text\"}]}"
+        )
+
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt},
+        ]
+
+        try:
+            text, _ = self._chat_completion(
+                messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                context_tag='label_rules',
+            )
+        except Exception as exc:
+            raise RuntimeError(f'LLM label evaluation request failed: {exc}') from exc
+
+        parsed = _extract_json(text) if isinstance(text, str) else None
+        if not isinstance(parsed, dict):
+            snippet = (text or '') if isinstance(text, str) else repr(text)
+            logger.error('LLM label evaluation returned non-JSON payload: %s', snippet[:500])
+            raise RuntimeError('LLM label evaluation returned a non-JSON payload.')
+
+        matches = parsed.get('matches')
+        if not isinstance(matches, list):
+            snippet = json.dumps(parsed, ensure_ascii=False)[:500]
+            logger.error('LLM label evaluation response missing "matches" list. Payload: %s', snippet)
+            raise RuntimeError('LLM label evaluation response missing "matches" list.')
+
+        return parsed
     

@@ -4,6 +4,7 @@ from llm_email_app.auth.google_oauth import get_web_flow, TOKEN_DIR, DEFAULT_SCO
 import json
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+from typing import Optional, Dict
 
 SCOPES = [
     "openid",
@@ -24,16 +25,19 @@ async def login(request: Request):
 async def auth_callback(request: Request):
     print("In auth_callback")
     try:
-        state = request.session["state"]
+        state = request.session.get("state")
+        if not state:
+            raise ValueError("Missing OAuth state in session; restart login flow.")
         print(f"Session state: {state}")
-        
-        flow = get_web_flow(scopes=SCOPES)
+
+        flow = get_web_flow(scopes=SCOPES, state=state)
         print("Fetching token...")
         flow.fetch_token(authorization_response=str(request.url))
         print("Token fetched.")
 
         credentials = flow.credentials
         request.session["credentials"] = credentials.to_json()
+        request.session.pop("state", None)
         print("Credentials stored in session.")
 
         if credentials.id_token:
@@ -82,3 +86,15 @@ def get_credentials(request: Request):
 
     creds_json = json.loads(request.session["credentials"])
     return creds_json
+
+
+def load_persisted_credentials() -> Optional[Dict]:
+    """Return credentials stored on disk, if the user previously authenticated."""
+    token_file = TOKEN_DIR / "google_token.json"
+    if not token_file.exists():
+        return None
+    try:
+        with open(token_file, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
