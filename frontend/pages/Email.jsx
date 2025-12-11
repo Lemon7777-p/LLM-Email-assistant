@@ -5,11 +5,11 @@
 
 const { useState, useMemo, useEffect, useRef } = React;
 
-const FOLDER_DISPLAY = [
-  { key: 'inbox', label: '收件箱' },
-  { key: 'sent', label: '已发送' },
-  { key: 'drafts', label: '草稿' },
-  { key: 'trash', label: '回收站' },
+const getFolderDisplay = (t) => [
+  { key: 'inbox', label: t('email.inbox') },
+  { key: 'sent', label: t('email.sent') },
+  { key: 'drafts', label: t('email.drafts') },
+  { key: 'trash', label: t('email.trash') },
 ];
 
 const Spinner = () => (
@@ -34,6 +34,7 @@ const Spinner = () => (
 
 const EmailDetailView = ({ email, onBack }) => {
   const { useMemo } = React;
+  const { t } = useTranslation();
   const domPurify = typeof window === 'undefined' ? null : window.DOMPurify;
 
   const bodyString = useMemo(() => String(email.body || ''), [email.body]);
@@ -73,7 +74,7 @@ const EmailDetailView = ({ email, onBack }) => {
           cursor: 'pointer',
         }}
       >
-        &larr; 返回列表
+        {t('email.backToList')}
       </button>
 
       <div style={{ borderBottom: '1px solid #eee', paddingBottom: '8px', marginBottom: '16px' }}>
@@ -87,7 +88,6 @@ const EmailDetailView = ({ email, onBack }) => {
           dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
           style={{
             overflowY: 'auto',
-            minHeight: '60vh',
             maxHeight: '60vh',
             minWidth: '620px',
             maxWidth: '620px',
@@ -100,7 +100,6 @@ const EmailDetailView = ({ email, onBack }) => {
             whiteSpace: 'pre-wrap',
             marginBottom: 16,
             overflowY: 'auto',
-            minHeight: '60vh',
             maxHeight: '60vh',
             minWidth: '620px',
             maxWidth: '620px',
@@ -128,6 +127,8 @@ function EmailView({
   onFolderChange,
   onRefresh,
 }) {
+  const { t } = useTranslation();
+  const FOLDER_DISPLAY = getFolderDisplay(t);
   const folders = mailbox?.folders || {};
   const folderData = folders[activeFolder] || { items: [], page: 1, has_next_page: false };
   const emails = folderData.items || [];
@@ -142,9 +143,21 @@ function EmailView({
     }, []);
   }, [mailbox]);
 
+  // Gmail system labels to exclude from custom labels section
+  const SYSTEM_LABELS = new Set([
+    'INBOX', 'SENT', 'DRAFT', 'DRAFTS', 'TRASH', 'SPAM', 'STARRED', 'UNREAD', 'IMPORTANT',
+    'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS',
+    'CHAT', 'OPENED', 'ARCHIVED',
+  ]);
+
   const availableLabels = useMemo(() => {
     const set = new Set();
-    allEmails.forEach((item) => (item.labels || []).forEach((lbl) => set.add(lbl)));
+    allEmails.forEach((item) => (item.labels || []).forEach((lbl) => {
+      // Only add non-system labels (user-created custom labels)
+      if (!SYSTEM_LABELS.has(lbl.toUpperCase())) {
+        set.add(lbl);
+      }
+    }));
     return Array.from(set);
   }, [allEmails]);
 
@@ -181,14 +194,14 @@ function EmailView({
 
   const activeFolderLabel = useMemo(() => {
     if (!activeFolder) {
-      return '邮件';
+      return t('nav.email');
     }
     if (activeFolder.startsWith('label:')) {
       return activeFolder.replace('label:', '');
     }
     const entry = FOLDER_DISPLAY.find((item) => item.key === activeFolder);
     return entry?.label || activeFolder;
-  }, [activeFolder]);
+  }, [activeFolder, t]);
 
   const displayEmails = derivedEmails.slice(0, perPage);
   const isEmpty = !loading && displayEmails.length === 0;
@@ -201,11 +214,20 @@ function EmailView({
 
   const [summary, setSummary] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
+  const [proposals, setProposals] = useState([]);
+  const [proposalStatuses, setProposalStatuses] = useState({});
+  const [draftReply, setDraftReply] = useState(null);
+  const [draftReplyStatus, setDraftReplyStatus] = useState(null);
+  const [editedDraftBody, setEditedDraftBody] = useState('');
 
   useEffect(() => {
     setViewingEmail(selectedEmail || null);
     setSummary(null);
     setSummarizing(false);
+    setProposals([]);
+    setDraftReply(null);
+    setDraftReplyStatus(null);
+    setEditedDraftBody('');
   }, [selectedEmail]);
 
   const handleSummarize = async () => {
@@ -213,6 +235,10 @@ function EmailView({
     const currentEmailId = viewingEmail.id;
     setSummarizing(true);
     setSummary(null);
+    setProposals([]);
+    setDraftReply(null);
+    setDraftReplyStatus(null);
+    setEditedDraftBody('');
     try {
       const res = await fetch(`/api/emails/${encodeURIComponent(currentEmailId)}/summarize`, {
         method: 'POST',
@@ -220,7 +246,12 @@ function EmailView({
       });
       const data = await res.json();
       if (latestViewingIdRef.current === currentEmailId) {
-        setSummary(data.summary || JSON.stringify(data));
+        setSummary(data.summary || "");
+        setProposals(data.proposals || []);
+        if (data.draft_reply) {
+          setDraftReply(data.draft_reply);
+          setEditedDraftBody(data.draft_reply.body || '');
+        }
       }
     } catch (err) {
       if (latestViewingIdRef.current === currentEmailId) {
@@ -233,11 +264,30 @@ function EmailView({
     }
   };
 
+const handleAddToCalendar = async (proposal, idx) => {
+  // mark as pending
+  setProposalStatuses((prev) => ({ ...prev, [idx]: "Adding..." }));
+  try {
+    const res = await fetch("/calendar/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(proposal),
+    });
+    if (res.ok) {
+      setProposalStatuses((prev) => ({ ...prev, [idx]: "Added ✓" }));
+    } else {
+      setProposalStatuses((prev) => ({ ...prev, [idx]: "Failed ✗" }));
+    }
+  } catch (err) {
+    setProposalStatuses((prev) => ({ ...prev, [idx]: "Error ✗" }));
+  }
+};
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '180px 360px 1fr', gap: 12, minHeight: '70vh' }}>
       {/* Folder column */}
       <div style={{ background: '#fff', borderRadius: 8, padding: 12, boxShadow: '0 1px 2px rgba(0,0,0,0.05)', height: 'fit-content' }}>
-        <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>文件夹</h4>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>{t('email.folders')}</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {FOLDER_DISPLAY.map(({ key, label }) => (
             <button
@@ -264,7 +314,7 @@ function EmailView({
         </div>
         {labelFolders.length > 0 && (
           <>
-            <h4 style={{ margin: '16px 0 8px 0', fontSize: 14 }}>自定义标签</h4>
+            <h4 style={{ margin: '16px 0 8px 0', fontSize: 14 }}>{t('email.customLabels')}</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {labelFolders.map(({ key, label }) => (
                 <button
@@ -310,7 +360,7 @@ function EmailView({
                 fontSize: 12,
               }}
             >
-              刷新
+              {t('email.refresh')}
             </button>
           )}
         </div>
@@ -326,7 +376,7 @@ function EmailView({
           {loading ? (
             <p>Loading...</p>
           ) : isEmpty ? (
-            <p>没有邮件</p>
+            <p>{t('email.noEmails')}</p>
           ) : (
             displayEmails.map((e) => (
               <div
@@ -338,7 +388,7 @@ function EmailView({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <strong style={{ fontSize: 14 }}>{e.subject || '(无主题)'}</strong>
+                  <strong style={{ fontSize: 14 }}>{e.subject || t('email.noSubject')}</strong>
                   <span style={{ fontSize: 12, color: '#94a3b8' }}>
                     {new Date(e.received || Date.now()).toLocaleDateString()}
                   </span>
@@ -380,7 +430,7 @@ function EmailView({
               cursor: page === 1 ? 'not-allowed' : 'pointer',
             }}
           >
-            上一页
+            {t('email.prevPage')}
           </button>
           <div
             style={{
@@ -390,7 +440,7 @@ function EmailView({
               fontWeight: 600,
             }}
           >
-            第 {folderData.page || page} 页
+            {t('email.page')} {folderData.page || page}
           </div>
           <button
             onClick={() => onPageChange(page + 1)}
@@ -403,7 +453,7 @@ function EmailView({
               cursor: folderData.has_next_page ? 'pointer' : 'not-allowed',
             }}
           >
-            下一页
+            {t('email.nextPage')}
           </button>
         </div>
       </div>
@@ -443,10 +493,134 @@ function EmailView({
                   </div>
                 )}
               </div>
+              {proposals.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <h3>Proposals</h3>
+                  {proposals.map((p, idx) => (
+                    <div key={idx} style={{ border: '1px solid #ddd', padding: 12, borderRadius: 6, marginBottom: 8 }}>
+                      <p><strong>{p.title}</strong></p>
+                      <p>{new Date(p.start).toLocaleString()} - {new Date(p.end).toLocaleString()}</p>
+                      {p.location && <p> {p.location}</p>}
+                      {p.notes && <p> {p.notes}</p>}
+                      <button
+                        onClick={() => handleAddToCalendar(p, idx)}
+                        style={{
+                          disabled: proposalStatuses[idx] === "Added ✓", // Disable when added
+                          marginTop: 8,
+                          padding: '6px 10px',
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          background: proposalStatuses[idx] === "Added ✓" ? "#9ca3af" : "#1f6feb", // gray if added
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: 4,
+                          cursor: proposalStatuses[idx] === "Added ✓" ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {proposalStatuses[idx] === "Adding..." && <Spinner />}
+                        {proposalStatuses[idx] || "Add to Calendar"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {draftReply && (
+                <div style={{ marginTop: 16 }}>
+                  <h3>{t('email.draftReply')}</h3>
+                  <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 6 }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontWeight: 500, fontSize: 13, color: '#374151' }}>{t('email.subject')}:</label>
+                      <div style={{ 
+                        padding: '8px 12px', 
+                        background: '#f3f4f6', 
+                        borderRadius: 4, 
+                        marginTop: 4,
+                        fontSize: 14 
+                      }}>
+                        {draftReply.subject}
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ fontWeight: 500, fontSize: 13, color: '#374151' }}>{t('email.body')}:</label>
+                      <textarea
+                        value={editedDraftBody}
+                        onChange={(e) => setEditedDraftBody(e.target.value)}
+                        style={{
+                          width: '100%',
+                          minHeight: 150,
+                          padding: '8px 12px',
+                          background: '#f3f4f6',
+                          border: 'none',
+                          borderRadius: 4,
+                          marginTop: 4,
+                          fontSize: 14,
+                          fontFamily: 'inherit',
+                          resize: 'vertical',
+                          lineHeight: 1.5,
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={async () => {
+                          if (draftReplyStatus === 'saving') return;
+                          setDraftReplyStatus('saving');
+                          try {
+                            const res = await fetch('/emails/drafts', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                to: viewingEmail?.from || '',
+                                subject: draftReply.subject,
+                                body: editedDraftBody,
+                                reply_to_message_id: viewingEmail?.id,
+                              }),
+                            });
+                            if (res.ok) {
+                              setDraftReplyStatus('saved');
+                              setTimeout(() => {
+                                setDraftReply(null);
+                                setEditedDraftBody('');
+                                setDraftReplyStatus(null);
+                              }, 1500);
+                            } else {
+                              setDraftReplyStatus('error');
+                              setTimeout(() => setDraftReplyStatus(null), 2000);
+                            }
+                          } catch (err) {
+                            setDraftReplyStatus('error');
+                            setTimeout(() => setDraftReplyStatus(null), 2000);
+                          }
+                        }}
+                        disabled={draftReplyStatus === 'saving' || draftReplyStatus === 'saved'}
+                        style={{
+                          padding: '6px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: draftReplyStatus === 'saved' ? '#22c55e' : draftReplyStatus === 'error' ? '#ef4444' : '#1f6feb',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: draftReplyStatus === 'saving' || draftReplyStatus === 'saved' ? 'not-allowed' : 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {draftReplyStatus === 'saving' && <Spinner />}
+                        {draftReplyStatus === 'saved' ? t('email.draftSaved') : 
+                         draftReplyStatus === 'error' ? t('email.draftError') : 
+                         t('email.addToDraft')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         ) : (
-          <div style={{ padding: 16 }}>Select an email to view</div>
+          <div style={{ padding: 16 }}>{t('email.selectEmail')}</div>
         )}
       </div>
     </div>

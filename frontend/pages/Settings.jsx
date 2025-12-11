@@ -1,7 +1,9 @@
 const { useState, useEffect } = React;
 
 const SettingsView = ({ user, onAutomationActivity }) => {
+  const { t } = useTranslation();
   const [automationEnabled, setAutomationEnabled] = useState(false);
+  const [autoAddEvents, setAutoAddEvents] = useState(false);
   const [rules, setRules] = useState([]);
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState({ label: '', reason: '' });
@@ -13,13 +15,14 @@ const SettingsView = ({ user, onAutomationActivity }) => {
   const loadAutomationState = async () => {
     try {
       setLoading(true);
-      const [rulesResp, statusResp] = await Promise.all([
+      const [rulesResp, statusResp, extraSettingsResp] = await Promise.all([
         fetch('/automation/rules'),
         fetch('/automation/status'),
+        fetch('/automation/extra-settings'),
       ]);
 
       if (!rulesResp.ok) {
-        throw new Error('无法获取规则');
+        throw new Error(t('settings.loadingRules'));
       }
       const rulesData = await rulesResp.json();
       setRules(rulesData.rules || []);
@@ -31,9 +34,15 @@ const SettingsView = ({ user, onAutomationActivity }) => {
       } else {
         setStatus(null);
       }
+
+      if (extraSettingsResp.ok) {
+        const extraData = await extraSettingsResp.json();
+        setAutoAddEvents(!!extraData.auto_add_events);
+      }
+
       setError(null);
     } catch (err) {
-      setError(err.message || '加载自动化配置失败');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -64,20 +73,39 @@ const SettingsView = ({ user, onAutomationActivity }) => {
         body: JSON.stringify({ automation_enabled: nextValue }),
       });
       if (!resp.ok) {
-        throw new Error('服务端更新失败');
+        throw new Error('Server update failed');
       }
       await loadAutomationState();
       await notifyAutomationActivity();
     } catch (err) {
       setAutomationEnabled(!nextValue);
-      setError(err.message || '更新自动化开关失败');
+      setError(err.message);
+    }
+  };
+
+  const toggleAutoAddEvents = async () => {
+    const nextValue = !autoAddEvents;
+    setAutoAddEvents(nextValue);
+    try {
+      const resp = await fetch('/automation/extra-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_add_events: nextValue }),
+      });
+      if (!resp.ok) {
+        throw new Error('Server update failed');
+      }
+      setError(null);
+    } catch (err) {
+      setAutoAddEvents(!nextValue);
+      setError(err.message);
     }
   };
 
   const handleAddRule = async (event) => {
     event.preventDefault();
     if (!form.label.trim() || !form.reason.trim()) {
-      setError('请输入标签名称和匹配理由');
+      setError(t('settings.enterLabelAndReason'));
       return;
     }
     setSaving(true);
@@ -88,8 +116,8 @@ const SettingsView = ({ user, onAutomationActivity }) => {
         body: JSON.stringify({ label: form.label.trim(), reason: form.reason.trim() }),
       });
       if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({ detail: '创建规则失败' }));
-        throw new Error(detail.detail || '创建规则失败');
+        const detail = await resp.json().catch(() => ({ detail: 'Failed to create rule' }));
+        throw new Error(detail.detail || 'Failed to create rule');
       }
       await resp.json();
       setForm({ label: '', reason: '' });
@@ -97,7 +125,7 @@ const SettingsView = ({ user, onAutomationActivity }) => {
       await loadAutomationState();
       await notifyAutomationActivity();
     } catch (err) {
-      setError(err.message || '创建规则失败');
+      setError(err.message);
     } finally {
       setSaving(false);
     }
@@ -108,21 +136,21 @@ const SettingsView = ({ user, onAutomationActivity }) => {
     try {
       const resp = await fetch(`/automation/rules/${ruleId}`, { method: 'DELETE' });
       if (!resp.ok) {
-        throw new Error('删除失败');
+        throw new Error('Failed to delete rule');
       }
       await loadAutomationState();
       await notifyAutomationActivity();
     } catch (err) {
-      setError(err.message || '删除规则失败');
+      setError(err.message);
     }
   };
 
   const formatTimestamp = (value) => {
     if (!value) {
-      return '尚未执行';
+      return t('settings.notExecuted');
     }
     try {
-      return new Date(value).toLocaleString();
+      return new Date(value).toLocaleString(i18n.currentLang === 'zh' ? 'zh-CN' : 'en-US');
     } catch (err) {
       return value;
     }
@@ -135,14 +163,14 @@ const SettingsView = ({ user, onAutomationActivity }) => {
     try {
       const resp = await fetch('/automation/run', { method: 'POST' });
       if (!resp.ok) {
-        throw new Error('手动运行失败');
+        throw new Error('Failed to run automation');
       }
       await resp.json();
       await loadAutomationState();
       setError(null);
       await notifyAutomationActivity();
     } catch (err) {
-      setError(err.message || '手动运行失败');
+      setError(err.message);
     } finally {
       setRunningNow(false);
     }
@@ -151,12 +179,12 @@ const SettingsView = ({ user, onAutomationActivity }) => {
   return (
     <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ padding: 16, borderBottom: '1px solid #f1f5f9' }}>
-        <h2 style={{ margin: 0 }}>系统设置</h2>
-        <p style={{ color: '#6b7280' }}>管理您的账户信息与自动化标签</p>
+        <h2 style={{ margin: 0 }}>{t('settings.title')}</h2>
+        <p style={{ color: '#6b7280' }}>{t('settings.subtitle')}</p>
       </div>
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 24 }}>
         <section>
-          <h3 style={{ fontSize: 12, letterSpacing: 1 }}>账户</h3>
+          <h3 style={{ fontSize: 12, letterSpacing: 1 }}>{t('settings.account')}</h3>
           {user && (
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8 }}>
               {user.picture && <img src={user.picture} alt={user.name} style={{ width: 64, height: 64, borderRadius: 64 }} />}
@@ -172,8 +200,8 @@ const SettingsView = ({ user, onAutomationActivity }) => {
         <section style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div>
-              <h3 style={{ margin: '0 0 4px 0' }}>自动标签</h3>
-              <p style={{ color: '#6b7280', margin: 0 }}>根据自定义规则定期为邮件添加标签</p>
+              <h3 style={{ margin: '0 0 4px 0' }}>{t('settings.autoLabel')}</h3>
+              <p style={{ color: '#6b7280', margin: 0 }}>{t('settings.autoLabelDesc')}</p>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button
@@ -189,7 +217,7 @@ const SettingsView = ({ user, onAutomationActivity }) => {
                   minWidth: 120,
                 }}
               >
-                {automationEnabled ? '已开启' : '已关闭'}
+                {automationEnabled ? t('settings.on') : t('settings.off')}
               </button>
               <button
                 onClick={handleRunAutomation}
@@ -204,21 +232,21 @@ const SettingsView = ({ user, onAutomationActivity }) => {
                   minWidth: 120,
                 }}
               >
-                {runningNow ? '运行中…' : '立即运行'}
+                {runningNow ? t('settings.running') : t('settings.runNow')}
               </button>
             </div>
           </div>
           <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <StatusCard label="最近运行" value={formatTimestamp(status?.last_run_at)} />
-            <StatusCard label="最近处理" value={`${status?.last_labeled || 0} 封`} />
-            <StatusCard label="缓存同步" value={formatTimestamp(status?.last_refresh_at)} />
-            <StatusCard label="错误" value={status?.last_error || '暂无'} highlight={!!status?.last_error} />
+            <StatusCard label={t('settings.lastRun')} value={formatTimestamp(status?.last_run_at)} />
+            <StatusCard label={t('settings.lastProcessed')} value={`${status?.last_labeled || 0}`} />
+            <StatusCard label={t('settings.cacheSync')} value={formatTimestamp(status?.last_refresh_at)} />
+            <StatusCard label={t('settings.errors')} value={status?.last_error || t('settings.noErrors')} highlight={!!status?.last_error} />
           </div>
 
           <div style={{ marginTop: 16, background: '#f8fafc', borderRadius: 10, padding: 12 }}>
-            <h4 style={{ margin: '0 0 8px 0' }}>操作日志</h4>
+            <h4 style={{ margin: '0 0 8px 0' }}>{t('settings.activityLogs')}</h4>
             {logs.length === 0 ? (
-              <p style={{ color: '#94a3b8', margin: 0 }}>暂无日志</p>
+              <p style={{ color: '#94a3b8', margin: 0 }}>{t('settings.noLogs')}</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {logs.map((log) => (
@@ -248,14 +276,14 @@ const SettingsView = ({ user, onAutomationActivity }) => {
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <input
                 type="text"
-                placeholder="标签名称"
+                placeholder={t('settings.labelName')}
                 value={form.label}
                 onChange={(e) => setForm((prev) => ({ ...prev, label: e.target.value }))}
                 style={{ flex: 1, minWidth: 200, padding: 10, borderRadius: 8, border: '1px solid #e2e8f0' }}
               />
               <input
                 type="text"
-                placeholder="匹配理由，如“来自财务部的对账邮件”"
+                placeholder={t('settings.matchReason')}
                 value={form.reason}
                 onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
                 style={{ flex: 2, minWidth: 260, padding: 10, borderRadius: 8, border: '1px solid #e2e8f0' }}
@@ -265,24 +293,24 @@ const SettingsView = ({ user, onAutomationActivity }) => {
                 disabled={saving}
                 style={{ padding: '10px 18px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer' }}
               >
-                {saving ? '保存中...' : '添加规则'}
+                {saving ? t('settings.saving') : t('settings.addRule')}
               </button>
             </div>
           </form>
 
           <div style={{ marginTop: 16 }}>
-            <h4 style={{ marginBottom: 8 }}>规则列表</h4>
+            <h4 style={{ marginBottom: 8 }}>{t('settings.rulesList')}</h4>
             {loading ? (
-              <p>加载中...</p>
+              <p>{t('settings.loadingRules')}</p>
             ) : rules.length === 0 ? (
-              <p style={{ color: '#6b7280' }}>暂无规则，添加第一个规则以启用自动标签。</p>
+              <p style={{ color: '#6b7280' }}>{t('settings.noRules')}</p>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
                 <thead>
                   <tr style={{ textAlign: 'left', borderBottom: '1px solid #f1f5f9' }}>
-                    <th style={{ padding: '8px 4px' }}>标签</th>
-                    <th style={{ padding: '8px 4px' }}>理由</th>
-                    <th style={{ padding: '8px 4px', width: 80 }}>操作</th>
+                    <th style={{ padding: '8px 4px' }}>{t('settings.label')}</th>
+                    <th style={{ padding: '8px 4px' }}>{t('settings.reason')}</th>
+                    <th style={{ padding: '8px 4px', width: 80 }}>{t('settings.action')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -296,7 +324,7 @@ const SettingsView = ({ user, onAutomationActivity }) => {
                           onClick={() => handleDeleteRule(rule.id)}
                           style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}
                         >
-                          删除
+                          {t('settings.deleteRule')}
                         </button>
                       </td>
                     </tr>
@@ -304,6 +332,41 @@ const SettingsView = ({ user, onAutomationActivity }) => {
                 </tbody>
               </table>
             )}
+          </div>
+        </section>
+
+        {/* Auto Add Events Section */}
+        <section style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: '0 0 4px 0' }}>{t('settings.autoAddEvents')}</h3>
+              <p style={{ color: '#6b7280', margin: 0 }}>
+                {t('settings.autoAddEventsDesc')}
+              </p>
+            </div>
+            <button
+              onClick={toggleAutoAddEvents}
+              disabled={loading}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 999,
+                border: 'none',
+                background: autoAddEvents ? '#22c55e' : '#cbd5f5',
+                color: autoAddEvents ? '#fff' : '#0f172a',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                minWidth: 120,
+              }}
+            >
+              {autoAddEvents ? t('settings.on') : t('settings.off')}
+            </button>
+          </div>
+          <div style={{ marginTop: 12, padding: 12, background: autoAddEvents ? '#dcfce7' : '#fef3c7', borderRadius: 8, border: autoAddEvents ? '1px solid #86efac' : '1px solid #fde68a' }}>
+            <div style={{ fontSize: 13, color: autoAddEvents ? '#166534' : '#92400e' }}>
+              {autoAddEvents 
+                ? t('settings.autoAddOn')
+                : t('settings.autoAddOff')
+              }
+            </div>
           </div>
         </section>
 
