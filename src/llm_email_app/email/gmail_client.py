@@ -2,13 +2,12 @@
 
 Replace stubs with real Gmail API calls using googleapiclient.discovery or the Gmail REST endpoints with authorized credentials.
 """
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import base64
 import email as py_email
 from email.utils import parseaddr
 import logging
-from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,22 @@ except Exception:
     HttpError = Exception  # type: ignore
 
 from llm_email_app.config import settings
-from llm_email_app.auth.google_oauth import run_local_oauth_flow
+
+FOLDER_LABELS: Dict[str, str] = {
+    'inbox': 'INBOX',
+    'sent': 'SENT',
+    'drafts': 'DRAFT',
+    'trash': 'TRASH',
+}
+
+FOLDER_ALIASES: Dict[str, str] = {
+    'junk': 'trash',  # backward compatibility for legacy front-end routes
+}
+
+
+def canonical_folder_key(folder: Optional[str]) -> str:
+    key = (folder or 'inbox').lower()
+    return FOLDER_ALIASES.get(key, key)
 
 
 class GmailClient:
@@ -35,6 +49,7 @@ class GmailClient:
     def __init__(self, creds: object = None):
         self.creds = creds
         self.service = None
+        self._label_cache: Dict[str, str] = {}
         if build is None:
             logger.info('googleapiclient not installed; GmailClient will return stubbed emails')
             return
@@ -58,11 +73,33 @@ class GmailClient:
             logger.exception('Failed to initialize Gmail service; falling back to stubs: %s', e)
             self.service = None
 
+    def _refresh_label_cache(self) -> Dict[str, str]:
+        """Fetch Gmail labels and memoize id->name lookups."""
+        if self.service is None:
+            return self._label_cache
+        try:
+            labels = self.service.users().labels().list(userId='me').execute().get('labels', [])
+            self._label_cache = {
+                label['id']: label.get('name', label['id'])
+                for label in labels
+                if label.get('id')
+            }
+        except HttpError as exc:
+            logger.warning('Unable to refresh Gmail label cache: %s', exc)
+        return self._label_cache
+
+    def _label_names_from_ids(self, label_ids: List[str]) -> List[str]:
+        if not label_ids:
+            return []
+        cache = self._label_cache or self._refresh_label_cache()
+        return [cache.get(label_id, label_id) for label_id in label_ids]
+
     def _parse_message(self, msg: dict) -> Dict[str, str]:
         """Parse a Gmail API message resource into a simple dict with id, from, subject, body."""
         headers = {h['name']: h.get('value') for h in msg.get('payload', {}).get('headers', [])}
         from_hdr = headers.get('From') or headers.get('From:') or ''
         subject = headers.get('Subject') or ''
+        snippet = msg.get('snippet', '')
 
         body = ''
         payload = msg.get('payload', {})
@@ -112,51 +149,168 @@ class GmailClient:
         except Exception:
             received = None
 
-        return {'id': msg.get('id'), 'from': from_hdr, 'subject': subject, 'body': body, 'received': received}
+        label_ids = msg.get('labelIds') or []
+        return {
+            'id': msg.get('id'),
+            'from': from_hdr,
+            'subject': subject,
+            'body': body,
+            'snippet': snippet,
+            'received': received,
+            'label_ids': label_ids,
+            'labels': self._label_names_from_ids(label_ids),
+        }
 
-    def fetch_recent_emails(self, max_results: int = 5) -> List[Dict]:
-        """Return a list of recent emails in simplified dict form.
-
-        Each item: {'id': str, 'from': str, 'subject': str, 'body': str}
-        """
-        # If service missing (libs or config), return stubs for dev
-        if self.service is None:
-            return [
+    def _generate_stub_emails(self, label_key: str, limit: int) -> List[Dict[str, Any]]:
+        """Return deterministic stub data per mailbox for local development."""
+        now = datetime.now(timezone.utc)
+        fixtures = {
+            'inbox': [
                 {
-                    'id': 'stub-1',
+                    'id': 'stub-inbox-1',
                     'from': 'alice@example.com',
                     'subject': 'Meeting request: Q4 roadmap',
                     'body': 'Hi, can we meet next Tuesday at 10am to go over the Q4 roadmap? Regards, Alice'
                 },
                 {
-                    'id': 'stub-2',
+                    'id': 'stub-inbox-2',
                     'from': 'bob@example.com',
                     'subject': 'Quick sync',
-                    'body': "Can we do a quick sync tomorrow afternoon?"
+                    'body': 'Can we do a quick sync tomorrow afternoon?'
+                },
+            ],
+            'sent': [
+                {
+                    'id': 'stub-sent-1',
+                    'from': 'you@example.com',
+                    'subject': 'Weekly status recap',
+                    'body': 'Sent over the highlights for this week—let me know if questions.'
                 }
-            ][:max_results]
+            ],
+            'drafts': [
+                {
+                    'id': 'stub-draft-1',
+                    'from': 'you@example.com',
+                    'subject': 'Draft: Contract follow-up',
+                    'body': 'Need to confirm pricing section before sending.'
+                }
+            ],
+            'trash': [
+                {
+                    'id': 'stub-trash-1',
+                    'from': 'promo@example.net',
+                    'subject': 'Limited time winnings!!!',
+                    'body': 'Click now to claim your prize.'
+                }
+            ],
+        }
+        data = fixtures.get(label_key, fixtures['inbox'])
+        stub_label = FOLDER_LABELS.get(label_key, label_key.upper())
+        enriched: List[Dict[str, Any]] = []
+        for idx, item in enumerate(data):
+            enriched_item = dict(item)
+            if 'received' not in enriched_item:
+                enriched_item['received'] = (now - timedelta(hours=idx * 3)).isoformat()
+            enriched_item.setdefault('labels', [stub_label])
+            enriched_item.setdefault('label_ids', [stub_label])
+            enriched.append(enriched_item)
+        return enriched[:limit]
+
+    def _fetch_label_snapshot(self, label_key: str, page: int, per_page: int, days: int) -> Dict[str, Any]:
+        label_id = FOLDER_LABELS[label_key]
+        per_page = max(1, min(per_page, 50))
+
+        if self.service is None:
+            return {
+                'label': label_id,
+                'page': 1,
+                'has_next_page': False,
+                'items': self._generate_stub_emails(label_key, per_page)
+            }
 
         try:
-            resp = self.service.users().messages().list(userId='me', maxResults=max_results).execute()
-            msgs = resp.get('messages', [])
-            results = []
+            q = f'newer_than:{days}d'
+            kwargs = {
+                'userId': 'me',
+                'labelIds': [label_id],
+                'maxResults': per_page,
+                'q': q
+            }
+            request = self.service.users().messages().list(**kwargs)
+            current_page = 1
+            response = request.execute()
+            while current_page < page and response.get('nextPageToken'):
+                current_page += 1
+                request = self.service.users().messages().list(
+                    userId='me',
+                    labelIds=[label_id],
+                    maxResults=per_page,
+                    q=q,
+                    pageToken=response['nextPageToken']
+                )
+                response = request.execute()
+
+            if current_page < page:
+                return {
+                    'label': label_id,
+                    'page': current_page,
+                    'has_next_page': False,
+                    'items': []
+                }
+
+            msgs = response.get('messages', [])
+            results: List[Dict[str, Any]] = []
             for m in msgs:
                 mid = m.get('id')
+                if not mid:
+                    continue
                 full = self.service.users().messages().get(userId='me', id=mid, format='full').execute()
                 parsed = self._parse_message(full)
                 results.append(parsed)
-            return results
+
+            return {
+                'label': label_id,
+                'page': current_page,
+                'has_next_page': bool(response.get('nextPageToken')),
+                'items': results
+            }
         except HttpError as e:
-            logger.exception('Gmail API error: %s', e)
-            # fallback to stubs on API error
-            return [
-                {
-                    'id': 'stub-1',
-                    'from': 'alice@example.com',
-                    'subject': 'Meeting request: Q4 roadmap',
-                    'body': 'Hi, can we meet next Tuesday at 10am to go over the Q4 roadmap? Regards, Alice'
-                }
-            ]
+            logger.exception('Gmail API error while fetching label %s: %s', label_id, e)
+            return {
+                'label': label_id,
+                'page': 1,
+                'has_next_page': False,
+                'items': self._generate_stub_emails(label_key, per_page)
+            }
+
+    def fetch_mailbox_overview(
+        self,
+        active_folder: str = 'inbox',
+        page: int = 1,
+        per_page: int = 20,
+        days: int = 7
+    ) -> Dict[str, Any]:
+        """Fetch a multi-folder snapshot including inbox, sent, drafts, and trash."""
+        normalized_key = canonical_folder_key(active_folder)
+        normalized = normalized_key if normalized_key in FOLDER_LABELS else 'inbox'
+        per_page = max(1, min(per_page, 50))
+        overview: Dict[str, Any] = {}
+        for folder_key in FOLDER_LABELS.keys():
+            folder_page = page if folder_key == normalized else 1
+            overview[folder_key] = self._fetch_label_snapshot(folder_key, folder_page, per_page, days)
+
+        return {
+            'active_folder': normalized,
+            'page': page,
+            'per_page': per_page,
+            'days': days,
+            'folders': overview
+        }
+
+    def fetch_recent_emails(self, page: int = 1, per_page: int = 20, days: int = 7) -> List[Dict]:
+        """Backward-compatible helper returning inbox items only."""
+        overview = self.fetch_mailbox_overview(active_folder='inbox', page=page, per_page=per_page, days=days)
+        return overview.get('folders', {}).get('inbox', {}).get('items', [])
 
     def fetch_emails_since(self, days: int = 7, max_results: Optional[int] = None) -> List[Dict]:
         """Fetch emails from the authenticated user's mailbox from the past `days` days.
@@ -310,24 +464,17 @@ class GmailClient:
             raise
 
     def delete_email(self, message_id: str) -> bool:
-        """Delete an email.
-        
-        Args:
-            message_id: The ID of the email to delete
-        
-        Returns:
-            True if successful, False otherwise
-        """
+        """Move an email to Gmail Trash."""
         if self.service is None:
-            logger.warning('Gmail service not available; cannot delete email')
+            logger.warning('Gmail service not available; cannot move email to trash')
             return False
-        
+
         try:
-            self.service.users().messages().delete(userId='me', id=message_id).execute()
-            logger.info('Email deleted successfully, id: %s', message_id)
+            self.service.users().messages().trash(userId='me', id=message_id).execute()
+            logger.info('Email moved to trash, id: %s', message_id)
             return True
         except HttpError as e:
-            logger.exception('Failed to delete email: %s', e)
+            logger.exception('Failed to move email to trash: %s', e)
             return False
 
     def mark_as_read(self, message_id: str, read: bool = True) -> bool:
@@ -389,3 +536,171 @@ class GmailClient:
         except HttpError as e:
             logger.exception('Failed to archive email: %s', e)
             return False
+
+    def check_or_create_label(self, label_name: str) -> str:
+        """Check if a label exists, and create it if it doesn't.
+        
+        Args:
+            label_name: The name of the label
+        
+        Returns:
+            The ID of the label
+        """
+        if self.service is None:
+            logger.warning('Gmail service not available; cannot check or create label')
+            return 'stub-label-id'
+        
+        try:
+            # Check if label exists
+            labels = self.service.users().labels().list(userId='me').execute().get('labels', [])
+            for label in labels:
+                if label['name'] == label_name:
+                    label_id = label['id']
+                    self._label_cache[label_id] = label_name
+                    return label_id
+            
+            # Create label if it doesn't exist
+            label_body = {'name': label_name, 'labelListVisibility': 'labelShow', 'messageListVisibility': 'show'}
+            label = self.service.users().labels().create(userId='me', body=label_body).execute()
+            label_id = label['id']
+            self._label_cache[label_id] = label_name
+            return label_id
+        except HttpError as e:
+            logger.exception('Failed to check or create label: %s', e)
+            raise
+
+    def apply_labels_to_message(self, message_id: str, label_ids: List[str]) -> bool:
+        """Apply labels to a message.
+        
+        Args:
+            message_id: The ID of the message
+            label_ids: The IDs of the labels to apply
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        if self.service is None:
+            logger.warning('Gmail service not available; cannot apply labels to message')
+            return False
+        
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'addLabelIds': label_ids}
+            ).execute()
+            return True
+        except HttpError as e:
+            logger.exception('Failed to apply labels to message: %s', e)
+            return False
+
+    def get_message(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a single Gmail message by ID and parse it into a dict with id, from, subject, body, received."""
+        if self.service is None:
+            # Stub fallback: return a fake message for local dev
+            return {
+                "id": message_id,
+                "from": "stub@example.com",
+                "subject": "Stub email",
+                "body": "This is a stubbed email body for testing.",
+                "received": datetime.now(timezone.utc).isoformat(),
+            }
+        try:
+            full = self.service.users().messages().get(
+                userId="me", id=message_id, format="full"
+            ).execute()
+
+            # Use your existing parser
+            parsed = self._parse_message(full)
+
+            # Add fallbacks if body is empty
+            if not parsed.get("body"):
+                parsed["body"] = full.get("snippet") or ""
+                # Sometimes raw payload exists
+                if not parsed["body"]:
+                    payload = full.get("payload", {})
+                    data = payload.get("body", {}).get("data")
+                    if data:
+                        try:
+                            parsed["body"] = base64.urlsafe_b64decode(data.encode("utf-8")).decode(
+                                "utf-8", errors="replace"
+                            )
+                        except Exception:
+                            parsed["body"] = ""
+
+            return parsed
+        except HttpError as e:
+            logger.exception("Failed to fetch Gmail message %s: %s", message_id, e)
+            return None
+
+    def create_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        reply_to_message_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Create a draft email in the user's Gmail Drafts folder.
+
+        Args:
+            to: Recipient email address
+            subject: Email subject line
+            body: Email body content (plain text)
+            reply_to_message_id: Optional message ID if this draft is a reply
+
+        Returns:
+            Dict with draft info including id, or None on failure
+        """
+        if self.service is None:
+            logger.warning('Gmail service not available; returning stub draft')
+            return {
+                'id': f'stub-draft-{datetime.now(timezone.utc).timestamp()}',
+                'message': {'id': 'stub-message-id'},
+            }
+
+        try:
+            from email.mime.text import MIMEText
+
+            # Create the email message
+            message = MIMEText(body, 'plain', 'utf-8')
+            message['to'] = to
+            message['subject'] = subject
+
+            # If replying, add threading headers
+            if reply_to_message_id:
+                try:
+                    original = self.service.users().messages().get(
+                        userId='me', id=reply_to_message_id, format='metadata',
+                        metadataHeaders=['Message-ID', 'References', 'In-Reply-To']
+                    ).execute()
+                    headers = {h['name']: h['value'] for h in original.get('payload', {}).get('headers', [])}
+                    original_msg_id = headers.get('Message-ID', '')
+                    references = headers.get('References', '')
+                    if original_msg_id:
+                        message['In-Reply-To'] = original_msg_id
+                        message['References'] = f"{references} {original_msg_id}".strip()
+                except Exception as e:
+                    logger.warning('Could not fetch original message headers for reply: %s', e)
+
+            # Encode the message
+            raw = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+
+            # Create the draft
+            draft_body: Dict[str, Any] = {'message': {'raw': raw}}
+            if reply_to_message_id:
+                draft_body['message']['threadId'] = reply_to_message_id
+
+            draft = self.service.users().drafts().create(
+                userId='me',
+                body=draft_body
+            ).execute()
+
+            logger.info('Created draft with ID: %s', draft.get('id'))
+            return draft
+
+        except HttpError as e:
+            logger.exception('Failed to create draft: %s', e)
+            return None
+        except Exception as e:
+            logger.exception('Unexpected error creating draft: %s', e)
+            return None

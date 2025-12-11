@@ -10,32 +10,79 @@ Features (planned):
 
 Quick start
 1. Copy `.env.example` to `.env` and fill credentials for OpenAI, Google OAuth and Microsoft (Azure) app.
-2. Create a Python virtual env and install dependencies:
+2. customize port for the app if you like (defult 8000), also change the `GOOGLE_OAUTH_REDIRECT_URI` port
+3. Create a Python virtual env and install dependencies:
 
 ```powershell
 python -m venv .venv; .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
-3. Run the sample pipeline (dry-run):
+3. Run the sample pipeline:
+
+Launch GUI with:
 
 ```powershell
-python -m llm_email_app.main
+$env:PYTHONPATH='src'; python -m src.llm_email_app.main
 ```
-
-Simple GUI for testing
-
-There's a light Tkinter GUI for quick manual testing. Launch it with:
-
-```powershell
-# from project `app` folder
-$env:PYTHONPATH='src'; python -m llm_email_app.gui
-```
+GUI at http://localhost:8000/
 
 The GUI lists recent emails (stubs by default), lets you summarize selected emails using the LLM client (stub if no API key), shows proposed events, and allows creating events (respects the `DRY_RUN` flag in `.env`).
 
-Notes
+
+## Docker Compose (run-only, no manual image build required)
+
+Use `docker-compose` to build (if configured) and run the application without manually invoking `docker build`.
+
+Examples (PowerShell):
+
+Start the app (will build images if the compose file includes a `build:` section):
+
+```powershell
+docker-compose up -d
+```
+
+Start and force rebuild of images (useful after code changes):
+
+```powershell
+docker-compose up -d --build --force-recreate
+```
+
+Stop and remove containers:
+
+```powershell
+docker-compose down
+```
+
+Follow logs (all services):
+
+```powershell
+docker-compose logs -f
+```
+
+Follow logs for a specific service:
+
+```powershell
+docker-compose logs -f <service_name>
+```
+
+Notes and tips:
+- If your `docker-compose.yml` contains a `build:` entry for the backend service, `docker-compose up` will use the repository's `Dockerfile` to build the image automatically — you don't need to run `docker build` separately.
+- Use an `.env` file in the repository root for environment variables referenced by `docker-compose.yml`. Some Compose versions also accept `--env-file .env`.
+- The compose file typically maps `./data` and `./tokens` to container volumes to persist rules, processed state, and OAuth tokens. Ensure those folders exist and are writable.
+- Confirm the exposed ports in `docker-compose.yml` (commonly `8000` for the backend and `3000` for the frontend) and open them in your firewall if required.
+
+## Notes
 - This scaffold contains skeleton modules for each integration. None of the integrations are production-ready yet — they contain TODOs and placeholders.
 - See `docs/project_structure.md` for architecture and next steps.
+- Automation knobs (optional) live in `.env`:
+	- `BACKGROUND_REFRESH_INTERVAL_MINUTES` (default `10`) controls how often the backend refreshes cached emails/events and runs the labeling pipeline.
+	- `AUTO_LABEL_ENABLED_DEFAULT` (default `false`) defines the initial state of the automation toggle before users change it in Settings.
 
 License: MIT (add your license file)
+
+## Page preview
+
+<img width="1104" height="915" alt="image" src="https://github.com/user-attachments/assets/1877b307-df49-4dff-afe9-fc27fb580a68" />
+<img width="1064" height="858" alt="image" src="https://github.com/user-attachments/assets/7313d32c-860c-4504-baec-ff4de052a954" />
+<img width="1245" height="783" alt="image" src="https://github.com/user-attachments/assets/45440bcf-211e-462f-96f6-aa0d5800061e" />
